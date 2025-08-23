@@ -232,8 +232,8 @@ Resources:
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
-      Cpu: "2048"
-      Memory: "4096"
+      Cpu: "4096"  # Increased CPU for better OCR performance
+      Memory: "8192"  # Increased memory for large PDFs
       ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
       TaskRoleArn: !GetAtt ECSTaskRole.Arn
       ContainerDefinitions:

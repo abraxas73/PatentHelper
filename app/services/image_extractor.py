@@ -20,6 +20,10 @@ class ImageExtractor:
         self.use_gpu = use_gpu
         self.image_processor = ImageProcessor()
         
+        # Suppress EasyOCR GPU warning
+        import warnings
+        warnings.filterwarnings("ignore", message=".*Using CPU.*")
+        
     def save_image(self, pil_image: Image.Image, output_path: Path) -> Path:
         pil_image.save(str(output_path))
         return output_path
@@ -69,7 +73,11 @@ class ImageExtractor:
         if self.reader is None:
             try:
                 import easyocr
-                self.reader = easyocr.Reader(self.ocr_languages, gpu=self.use_gpu)
+                import logging
+                # Suppress the GPU warning from EasyOCR
+                easyocr_logger = logging.getLogger('easyocr')
+                easyocr_logger.setLevel(logging.ERROR)
+                self.reader = easyocr.Reader(self.ocr_languages, gpu=self.use_gpu, verbose=False)
             except ImportError:
                 logger.warning("EasyOCR not installed. OCR features will be disabled.")
                 return False

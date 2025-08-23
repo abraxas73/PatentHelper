@@ -40,7 +40,13 @@ RUN pip install --no-cache-dir torch==2.3.0 torchvision==0.18.0 --index-url http
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Pre-download EasyOCR models to avoid runtime download
-RUN python -c "import easyocr; reader = easyocr.Reader(['ko', 'en'], gpu=False, download_enabled=True); print('Models downloaded successfully')"
+# Also configure for better CPU performance
+RUN python -c "import easyocr; reader = easyocr.Reader(['ko', 'en'], gpu=False, download_enabled=True, verbose=False); print('Models downloaded successfully')"
+
+# Set environment variables for CPU optimization
+ENV OMP_NUM_THREADS=4
+ENV MKL_NUM_THREADS=4
+ENV NUMEXPR_NUM_THREADS=4
 
 # Copy application code from project root
 COPY app/ ./app/

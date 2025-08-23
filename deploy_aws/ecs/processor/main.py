@@ -41,15 +41,37 @@ def update_job_status(job_id, status, **kwargs):
     expr_attr_values = {':status': status}
     
     for key, value in kwargs.items():
+        # Handle different data types and ensure proper encoding
+        if isinstance(value, dict):
+            # For dictionaries (like numberMappings), ensure all strings are properly encoded
+            safe_dict = {}
+            for k, v in value.items():
+                safe_k = str(k) if not isinstance(k, str) else k
+                safe_v = str(v) if not isinstance(v, str) else v
+                safe_dict[safe_k] = safe_v
+            value = safe_dict
+        elif isinstance(value, list):
+            # For lists, ensure all string items are properly encoded
+            value = [str(item) if not isinstance(item, str) else item for item in value]
+        elif isinstance(value, str):
+            # Ensure string is properly encoded
+            value = value.encode('utf-8').decode('utf-8')
+        
         update_expr += f", {key} = :{key}"
         expr_attr_values[f":{key}"] = value
     
-    table.update_item(
-        Key={'jobId': job_id},
-        UpdateExpression=update_expr,
-        ExpressionAttributeNames=expr_attr_names,
-        ExpressionAttributeValues=expr_attr_values
-    )
+    try:
+        table.update_item(
+            Key={'jobId': job_id},
+            UpdateExpression=update_expr,
+            ExpressionAttributeNames=expr_attr_names,
+            ExpressionAttributeValues=expr_attr_values
+        )
+    except Exception as e:
+        logger.error(f"Error updating DynamoDB: {str(e)}")
+        logger.error(f"Update expression: {update_expr}")
+        logger.error(f"Expression values: {expr_attr_values}")
+        raise
 
 def process_pdf(job_id, s3_key):
     """Process PDF file and extract/annotate drawings"""
@@ -94,6 +116,12 @@ def process_pdf(job_id, s3_key):
                              progress=40)
             
             number_mappings = text_analyzer.extract_number_mappings(full_text)
+            logger.info(f"Extracted {len(number_mappings)} number mappings")
+            # Log sample mappings for debugging
+            if number_mappings:
+                sample_items = list(number_mappings.items())[:3]
+                for key, value in sample_items:
+                    logger.info(f"Sample mapping: {key} -> {value}")
             
             # Find numbered regions in images
             update_job_status(job_id, 'PROCESSING',
@@ -146,6 +174,14 @@ def process_pdf(job_id, s3_key):
             total_pages = pdf_processor.get_page_count()
         
         # Update job as completed (moved outside context manager)
+        # Convert number_mappings to ensure proper encoding
+        safe_number_mappings = {}
+        for key, value in number_mappings.items():
+            # Ensure both key and value are properly encoded strings
+            safe_key = str(key) if isinstance(key, (int, float)) else key
+            safe_value = value if isinstance(value, str) else str(value)
+            safe_number_mappings[safe_key] = safe_value
+        
         update_job_status(
             job_id, 'COMPLETED',
             message='Processing completed successfully',
@@ -153,7 +189,7 @@ def process_pdf(job_id, s3_key):
             processingTime=int(processing_time),
             extractedImages=extracted_s3_keys,
             annotatedImages=annotated_s3_keys,
-            numberMappings=number_mappings,
+            numberMappings=safe_number_mappings,
             totalPages=total_pages,
             extractedCount=len(extracted_images),
             completedAt=int(datetime.now().timestamp())
