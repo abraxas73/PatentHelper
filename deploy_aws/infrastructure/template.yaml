@@ -1,0 +1,412 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: PatentHelper Serverless Infrastructure
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - dev
+      - prod
+    Description: Environment name
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.12
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        BUCKET_NAME: !Ref DocumentBucket
+        QUEUE_URL: !Ref ProcessingQueue
+        TABLE_NAME: !Ref JobTable
+
+Resources:
+  # S3 Buckets
+  DocumentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub patent-helper-documents-${Environment}
+      VersioningConfiguration:
+        Status: Enabled
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+            AllowedHeaders:
+              - "*"
+            MaxAge: 3600
+
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub patent-helper-frontend-${Environment}
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub ${FrontendBucket.Arn}/*
+
+  # CloudFront Distribution
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        Enabled: true
+        DefaultRootObject: index.html
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+          CachedMethods:
+            - GET
+            - HEAD
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+
+  # DynamoDB Table
+  JobTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub patent-helper-jobs-${Environment}
+      AttributeDefinitions:
+        - AttributeName: jobId
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: N
+      KeySchema:
+        - AttributeName: jobId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: UserIdIndex
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # SQS Queue
+  ProcessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub patent-helper-processing-${Environment}
+      VisibilityTimeout: 900  # 15 minutes for OCR processing
+      MessageRetentionPeriod: 86400  # 1 day
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProcessingDLQ.Arn
+        maxReceiveCount: 3
+
+  ProcessingDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub patent-helper-processing-dlq-${Environment}
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  # API Gateway
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Cors:
+        AllowMethods: "'*'"
+        AllowHeaders: "'*'"
+        AllowOrigin: "'*'"
+      Auth:
+        ApiKeyRequired: false
+
+  # Lambda Functions
+  UploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub patent-helper-upload-${Environment}
+      CodeUri: ../lambda/upload/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /upload
+            Method: POST
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref DocumentBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref JobTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt ProcessingQueue.QueueName
+
+  StatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub patent-helper-status-${Environment}
+      CodeUri: ../lambda/status/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /status/{jobId}
+            Method: GET
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref JobTable
+
+  ResultFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub patent-helper-result-${Environment}
+      CodeUri: ../lambda/result/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /result/{jobId}
+            Method: GET
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref DocumentBucket
+        - DynamoDBReadPolicy:
+            TableName: !Ref JobTable
+
+  # ECS Cluster for OCR Processing
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub patent-helper-cluster-${Environment}
+
+  # ECS Task Definition
+  OCRTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub patent-helper-ocr-${Environment}
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "2048"
+      Memory: "4096"
+      ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: ocr-processor
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/patent-helper-ocr:latest
+          Essential: true
+          Environment:
+            - Name: BUCKET_NAME
+              Value: !Ref DocumentBucket
+            - Name: QUEUE_URL
+              Value: !Ref ProcessingQueue
+            - Name: TABLE_NAME
+              Value: !Ref JobTable
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ECSLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ocr
+
+  ECSLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/patent-helper-ocr-${Environment}
+      RetentionInDays: 7
+
+  # IAM Roles
+  ECSExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: OCRTaskPolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub ${DocumentBucket.Arn}/*
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:ChangeMessageVisibility
+                Resource: !GetAtt ProcessingQueue.Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt JobTable.Arn
+
+  # Lambda to trigger ECS Task
+  OCRTriggerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub patent-helper-ocr-trigger-${Environment}
+      CodeUri: ../lambda/ocr-trigger/
+      Handler: handler.lambda_handler
+      Timeout: 60
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ProcessingQueue.Arn
+            BatchSize: 1
+      Environment:
+        Variables:
+          CLUSTER_NAME: !Ref ECSCluster
+          TASK_DEFINITION: !Ref OCRTaskDefinition
+          SUBNET_IDS: !Ref PublicSubnet
+          SECURITY_GROUP_ID: !Ref ECSSecurityGroup
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ecs:RunTask
+              Resource: !Ref OCRTaskDefinition
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource:
+                - !GetAtt ECSExecutionRole.Arn
+                - !GetAtt ECSTaskRole.Arn
+
+  # VPC Configuration (simplified)
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub patent-helper-igw-${Environment}
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ECS tasks
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway URL
+    Value: !Sub https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+  
+  CloudFrontUrl:
+    Description: CloudFront Distribution URL
+    Value: !GetAtt CloudFrontDistribution.DomainName
+  
+  FrontendBucket:
+    Description: Frontend S3 Bucket
+    Value: !Ref FrontendBucket
+  
+  DocumentBucket:
+    Description: Document S3 Bucket
+    Value: !Ref DocumentBucket

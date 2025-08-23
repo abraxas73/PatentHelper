@@ -119,3 +119,9 @@ dmypy.json
 
 # Cython
 cython_debug/
+# AWS deployment temp files
+deploy_aws/ecs/app/
+deploy_aws/lambda/**/*.zip
+deploy_aws/lambda/*/
+deploy_aws/.aws-sam/
+

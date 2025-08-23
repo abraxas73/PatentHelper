@@ -312,9 +312,6 @@ export default {
       try {
         const response = await axios.get(`${config.API_URL}/result/${currentJobId.value}`)
         
-        console.log('Result response:', response.data)
-        
-        // Lambda returns objects with presigned URLs
         images.value = response.data.extractedImages || []
         annotatedImages.value = response.data.annotatedImages || []
         numberMappings.value = response.data.numberMappings || {}

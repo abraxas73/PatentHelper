@@ -1,0 +1,35 @@
+# SAM Configuration File
+version = 0.1
+
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "patent-helper-prod"
+s3_bucket = "patent-helper-sam-deploy-857201044807"
+s3_prefix = "patent-helper-prod"
+region = "ap-northeast-2"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
+parameter_overrides = "Environment=prod"
+
+[staging]
+[staging.deploy]
+[staging.deploy.parameters]
+stack_name = "patent-helper-staging"
+s3_bucket = "patent-helper-sam-deploy-857201044807"
+s3_prefix = "patent-helper-staging"
+region = "ap-northeast-2"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
+parameter_overrides = "Environment=staging"
+
+[dev]
+[dev.deploy]
+[dev.deploy.parameters]
+stack_name = "patent-helper-dev"
+s3_bucket = "patent-helper-sam-deploy-857201044807"
+s3_prefix = "patent-helper-dev"
+region = "ap-northeast-2"
+confirm_changeset = false
+capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
+parameter_overrides = "Environment=dev"

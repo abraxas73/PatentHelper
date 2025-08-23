@@ -129,27 +129,42 @@ print(f"발견된 번호-명칭 매핑: {len(result['number_mappings'])}개")
 HTTPS를 위한 SSL 인증서 설정 (최초 1회만):
 
 ```bash
-./init-letsencrypt.sh
+./init-ssl.sh
 ```
 
-### 배포 관련 스크립트 설명
+### 배포 관련 파일 구조
 
-| 스크립트 | 설명 | 사용 시기 |
-|---------|------|----------|
-| `deploy.sh` | 메인 배포 스크립트 | 코드 변경 후 서버에 배포할 때 |
-| `init-letsencrypt.sh` | SSL 인증서 설정 | 최초 HTTPS 설정 시 |
-| `docker-compose.prod.yml` | 프로덕션 Docker 설정 | 서버에서 사용 |
-| `nginx-system.conf` | HTTP nginx 설정 | 서버 nginx 설정 |
-| `nginx-system-ssl.conf` | HTTPS nginx 설정 | SSL 적용 후 사용 |
+```
+PatentHelper/
+├── deploy.sh              # 메인 배포 스크립트
+├── init-ssl.sh            # SSL 초기화 스크립트
+└── deploy_server/         # 배포 관련 설정 파일들
+    ├── deploy.sh          # 실제 배포 실행 스크립트
+    ├── init-letsencrypt.sh # Let's Encrypt SSL 설정
+    ├── docker-compose.prod.yml     # 프로덕션 Docker 설정
+    ├── docker-compose.ssl.yml      # SSL용 Docker 설정
+    ├── Dockerfile.frontend.prod    # 프론트엔드 Docker 이미지
+    ├── nginx.conf                  # 컨테이너 nginx 설정
+    ├── nginx-system.conf           # 시스템 nginx HTTP 설정
+    └── nginx-system-ssl.conf       # 시스템 nginx HTTPS 설정
+```
+
+### 배포 스크립트 사용법
+
+| 명령어 | 설명 | 사용 시기 |
+|--------|------|----------|
+| `./deploy.sh` | 앱 배포 | 코드 변경 후 배포 시 |
+| `./init-ssl.sh` | SSL 인증서 설정 | 최초 HTTPS 설정 또는 갱신 시 |
+| `bash deploy_server/setup-server.sh` | 서버 초기 설정 | 새 서버 구성 시 |
 
 ### 서버 접속
 ```bash
-ssh -i ~/.ssh/ssh-key-2025-08-19.key ubuntu@patent.sncbears.cloud
+ssh -i ~/.ssh/ssh-key-2025-08-19.key ubuntu@patent-drawing.sncbears.cloud
 ```
 
 ### 서비스 URL
-- HTTP: http://patent.sncbears.cloud (자동으로 HTTPS로 리다이렉트)
-- HTTPS: https://patent.sncbears.cloud
+- HTTP: http://patent-drawing.sncbears.cloud (자동으로 HTTPS로 리다이렉트)
+- HTTPS: https://patent-drawing.sncbears.cloud
 
 ## etc
 - 서버 IP: 152.67.211.0
