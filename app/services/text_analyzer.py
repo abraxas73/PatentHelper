@@ -9,14 +9,17 @@ class TextAnalyzer:
     def __init__(self):
         # Patterns for extracting number-label mappings (부호의 설명 섹션)
         self.patterns = {
-            'basic': r'(\d{1,3})\s*[:：]\s*([가-힣\w\s]+)',
-            'dash': r'(\d{1,3})\s*[-－]\s*([가-힣\w\s]+)',
-            'dots': r'(\d{1,3})\s*[\.…]+\s*([가-힣\w\s]+)',
-            'parenthesis': r'(\d{1,3})\s*\)\s*([가-힣\w\s]+)',
-            'korean_style': r'(\d{1,3})\s*은\s+([가-힣\w\s]+)',
-            'reference': r'참조\s*번호\s*(\d{1,3})\s*[:：]?\s*([가-힣\w\s]+)',
-            'symbol_list': r'<\s*(\d{1,3})\s*>\s*([가-힣\w\s]+)',
-            'bracket': r'\[\s*(\d{1,3})\s*\]\s*([가-힣\w\s]+)'
+            'basic': r'(\d{1,4})\s*[:：]\s*([가-힣\w\s]+)',
+            'dash': r'(\d{1,4})\s*[-－]\s*([가-힣\w\s]+)',
+            'dots': r'(\d{1,4})\s*[\.…]+\s*([가-힣\w\s]+)',
+            'parenthesis': r'(\d{1,4})\s*\)\s*([가-힣\w\s]+)',
+            'korean_style': r'(\d{1,4})\s*은\s+([가-힣\w\s]+)',
+            'reference': r'참조\s*번호\s*(\d{1,4})\s*[:：]?\s*([가-힣\w\s]+)',
+            'symbol_list': r'<\s*(\d{1,4})\s*>\s*([가-힣\w\s]+)',
+            'bracket': r'\[\s*(\d{1,4})\s*\]\s*([가-힣\w\s]+)',
+            'comma_style': r'(\d{1,4})\s*[,，]\s*([가-힣\w\s]+)',
+            'space_only': r'^\s*(\d{1,4})\s+([가-힣][가-힣\w\s]+)',
+            'tab_style': r'(\d{1,4})\t+([가-힣\w\s]+)'
         }
         
         # Keywords that indicate part/component listings
@@ -78,12 +81,34 @@ class TextAnalyzer:
         """Extract number-label mappings from a text section"""
         mappings = {}
         
-        # Clean text
-        text = self._clean_text(text)
+        # Process text line by line for better detection
+        lines = text.split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Try each pattern on individual lines
+            for pattern_name, pattern in self.patterns.items():
+                matches = re.finditer(pattern, line)
+                for match in matches:
+                    number = match.group(1).strip()
+                    label = match.group(2).strip()
+                    
+                    # Clean and validate label
+                    label = self._clean_label(label)
+                    
+                    # Only accept short, component-like labels (not full sentences)
+                    if label and 2 <= len(label) <= 30 and not self._is_sentence(label):
+                        # Avoid overwriting with less specific labels
+                        if number not in mappings or len(label) < len(mappings[number]):
+                            mappings[number] = label
+                            logger.debug(f"Found mapping via {pattern_name} (line): {number} -> {label}")
         
-        # Try each pattern
+        # Also try patterns on cleaned full text for multi-line patterns
+        text_cleaned = self._clean_text(text)
         for pattern_name, pattern in self.patterns.items():
-            matches = re.finditer(pattern, text, re.MULTILINE)
+            matches = re.finditer(pattern, text_cleaned, re.MULTILINE)
             for match in matches:
                 number = match.group(1).strip()
                 label = match.group(2).strip()
@@ -92,11 +117,11 @@ class TextAnalyzer:
                 label = self._clean_label(label)
                 
                 # Only accept short, component-like labels (not full sentences)
-                if label and 2 <= len(label) <= 20 and not self._is_sentence(label):
+                if label and 2 <= len(label) <= 30 and not self._is_sentence(label):
                     # Avoid overwriting with less specific labels
                     if number not in mappings or len(label) < len(mappings[number]):
                         mappings[number] = label
-                        logger.debug(f"Found mapping via {pattern_name}: {number} -> {label}")
+                        logger.debug(f"Found mapping via {pattern_name} (full): {number} -> {label}")
         
         return mappings
     
@@ -176,8 +201,29 @@ class TextAnalyzer:
         # Remove very short or very long labels
         filtered = {}
         for number, label in mappings.items():
-            if 2 <= len(label) <= 30:
+            if 2 <= len(label) <= 35:
                 filtered[number] = label
+        
+        # Try to fill in missing sequential numbers if we have patterns
+        # For example, if we have 110, 130, 140, try to find 120
+        numbers = sorted([int(n) for n in filtered.keys() if n.isdigit()])
+        if len(numbers) >= 2:
+            # Find gaps in sequences
+            for i in range(len(numbers) - 1):
+                current = numbers[i]
+                next_num = numbers[i + 1]
+                
+                # Check for regular intervals (e.g., 10, 100, etc.)
+                diff = next_num - current
+                if diff in [10, 100, 1]:
+                    # Fill in missing numbers in this range
+                    for missing in range(current + diff, next_num, diff):
+                        missing_str = str(missing)
+                        if missing_str not in filtered:
+                            # Try to find this missing number in the original mappings
+                            if missing_str in mappings:
+                                filtered[missing_str] = mappings[missing_str]
+                                logger.info(f"Recovered missing mapping: {missing_str} -> {mappings[missing_str]}")
         
         return filtered
     
