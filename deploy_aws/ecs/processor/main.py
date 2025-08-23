@@ -80,7 +80,7 @@ def process_pdf(job_id, s3_key):
     
     try:
         # Update status to processing
-        update_job_status(job_id, 'PROCESSING', message='Downloading PDF...')
+        update_job_status(job_id, 'PROCESSING', message='PDF 다운로드 중...')
         
         # Download PDF from S3
         with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file:
@@ -101,7 +101,7 @@ def process_pdf(job_id, s3_key):
             
             # Extract text and images
             update_job_status(job_id, 'PROCESSING', 
-                             message='Extracting drawings...', 
+                             message='도면을 추출하는 중...', 
                              progress=20)
             
             full_text = pdf_processor.extract_text()
@@ -109,7 +109,7 @@ def process_pdf(job_id, s3_key):
             
             # Update with number of pages found
             update_job_status(job_id, 'PROCESSING',
-                             message=f'Found {len(raw_images)} drawings to extract',
+                             message=f'{len(raw_images)}개의 도면을 발견했습니다',
                              progress=25)
             
             # Save extracted images with progress updates
@@ -117,14 +117,14 @@ def process_pdf(job_id, s3_key):
             extracted_images = []
             for idx, img_data in enumerate(raw_images, 1):
                 update_job_status(job_id, 'PROCESSING',
-                                 message=f'Extracting drawing from page {img_data.get("page_num", idx)}...',
+                                 message=f'도면 추출 중.. 페이지 {img_data.get("page_num", idx)}',
                                  progress=25 + int((idx / len(raw_images)) * 10))
                 saved_imgs = image_extractor.extract_and_save_images([img_data], pdf_name)
                 extracted_images.extend(saved_imgs)
             
             # Analyze text for number mappings
             update_job_status(job_id, 'PROCESSING',
-                             message='Analyzing text...',
+                             message='텍스트를 분석하는 중...',
                              progress=40)
             
             number_mappings = text_analyzer.extract_number_mappings(full_text)
@@ -137,14 +137,14 @@ def process_pdf(job_id, s3_key):
             
             # Find numbered regions in images with detailed progress
             update_job_status(job_id, 'PROCESSING',
-                             message='Detecting numbers in drawings...',
+                             message='도면에서 번호를 감지하는 중...',
                              progress=60)
             
             numbered_regions_by_image = {}
             for idx, img_info in enumerate(extracted_images, 1):
                 drawing_name = Path(img_info['file_path']).stem
                 update_job_status(job_id, 'PROCESSING',
-                                 message=f'Detecting numbers in {drawing_name}...',
+                                 message=f'{drawing_name} 번호 감지 중...',
                                  progress=60 + int((idx / len(extracted_images)) * 15))
                 regions = image_extractor.find_numbered_regions(img_info['file_path'])
                 if regions:
@@ -153,14 +153,14 @@ def process_pdf(job_id, s3_key):
             
             # Annotate images with detailed progress
             update_job_status(job_id, 'PROCESSING',
-                             message='Starting annotation process...',
+                             message='어노테이션을 시작하는 중...',
                              progress=75)
             
             annotated_paths = []
             for idx, img_info in enumerate(extracted_images, 1):
                 drawing_name = Path(img_info['file_path']).stem
                 update_job_status(job_id, 'PROCESSING',
-                                 message=f'Adding annotations to {drawing_name}...',
+                                 message=f'{drawing_name} 어노테이션 추가 중...',
                                  progress=75 + int((idx / len(extracted_images)) * 15))
                 
                 # Annotate single image
@@ -176,7 +176,7 @@ def process_pdf(job_id, s3_key):
             
             # Upload results to S3 with detailed progress
             update_job_status(job_id, 'PROCESSING',
-                             message='Starting upload to cloud storage...',
+                             message='클라우드 저장소에 업로드 시작...',
                              progress=90)
             
             extracted_s3_keys = []
@@ -190,7 +190,7 @@ def process_pdf(job_id, s3_key):
                 filename = os.path.basename(img_info['file_path'])
                 s3_key = f"results/{job_id}/extracted/{filename}"
                 update_job_status(job_id, 'PROCESSING',
-                                 message=f'Uploading extracted image: {filename}...',
+                                 message=f'추출된 이미지 업로드: {filename}...',
                                  progress=90 + int((upload_count / total_uploads) * 8))
                 s3.upload_file(img_info['file_path'], BUCKET_NAME, s3_key)
                 extracted_s3_keys.append(s3_key)
@@ -201,14 +201,14 @@ def process_pdf(job_id, s3_key):
                 filename = os.path.basename(path)
                 s3_key = f"results/{job_id}/annotated/{filename}"
                 update_job_status(job_id, 'PROCESSING',
-                                 message=f'Uploading annotated image: {filename}...',
+                                 message=f'어노테이션 이미지 업로드: {filename}...',
                                  progress=90 + int((upload_count / total_uploads) * 8))
                 s3.upload_file(str(path), BUCKET_NAME, s3_key)
                 annotated_s3_keys.append(s3_key)
                 upload_count += 1
             
             update_job_status(job_id, 'PROCESSING',
-                             message='Finalizing results...',
+                             message='결과를 마무리하는 중...',
                              progress=98)
             
             # Calculate processing time
@@ -228,7 +228,7 @@ def process_pdf(job_id, s3_key):
         
         update_job_status(
             job_id, 'COMPLETED',
-            message='Processing completed successfully',
+            message='처리가 성공적으로 완료되었습니다',
             progress=100,
             processingTime=int(processing_time),
             extractedImages=extracted_s3_keys,
@@ -245,7 +245,7 @@ def process_pdf(job_id, s3_key):
         print(f"Error processing job {job_id}: {str(e)}")
         update_job_status(
             job_id, 'FAILED',
-            message=f"Processing failed: {str(e)}",
+            message=f"처리가 실패했습니다: {str(e)}",
             errorDetails=str(e)
         )
         raise
@@ -298,7 +298,7 @@ def main():
         try:
             # Update status to show container has started
             update_job_status(JOB_ID, 'PROCESSING', 
-                            message='Processing container started', 
+                            message='처리 컨테이너가 시작되었습니다', 
                             progress=5)
             process_pdf(JOB_ID, S3_KEY)
             print(f"Successfully processed job {JOB_ID}")
@@ -309,7 +309,7 @@ def main():
             # Ensure the error is recorded
             try:
                 update_job_status(JOB_ID, 'FAILED', 
-                                message=f"Container error: {str(e)}")
+                                message=f"컨테이너 오류: {str(e)}")
             except:
                 pass
             sys.exit(1)
