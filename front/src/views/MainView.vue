@@ -172,7 +172,7 @@
           <div v-else class="history-list">
             <div v-for="job in jobHistory" :key="job.jobId" class="history-item">
               <div class="history-info">
-                <div class="history-filename">{{ job.fileName }}</div>
+                <div class="history-filename">{{ getJobFilename(job) }}</div>
                 <div class="history-date">{{ formatDate(job.createdAt) }}</div>
                 <div class="history-status">
                   <span class="status-badge" :class="job.status">{{ getStatusText(job.status) }}</span>
@@ -464,8 +464,13 @@ export default {
         // Try to load from server
         const response = await axios.get(`${config.API_URL}/history?limit=50`)
         if (response.data && response.data.history) {
+          // Normalize server data to match local data structure
+          const serverHistory = response.data.history.map(job => ({
+            ...job,
+            fileName: job.fileName || job.filename // Ensure fileName field exists
+          }))
+          
           // Merge server history with local history (remove duplicates)
-          const serverHistory = response.data.history
           const mergedHistory = [...serverHistory]
           
           // Add local items that don't exist on server
@@ -520,6 +525,28 @@ export default {
       return statusMap[status] || status
     }
 
+    const getJobFilename = (job) => {
+      // Try multiple possible filename fields
+      if (job.fileName) return job.fileName
+      if (job.filename) return job.filename
+      
+      // If no filename, try to extract from s3Key
+      if (job.s3Key) {
+        const keyParts = job.s3Key.split('/')
+        const filename = keyParts[keyParts.length - 1]
+        if (filename && filename !== 'undefined') {
+          return filename
+        }
+      }
+      
+      // Last resort: use jobId with PDF extension
+      if (job.jobId) {
+        return `${job.jobId.substring(0, 8)}.pdf`
+      }
+      
+      return '파일명 없음'
+    }
+
     // Load history on mount
     onMounted(() => {
       loadHistory()
@@ -558,7 +585,8 @@ export default {
       showHistory,
       jobHistory,
       formatDate,
-      getStatusText
+      getStatusText,
+      getJobFilename
     }
   }
 }
