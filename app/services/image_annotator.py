@@ -89,9 +89,23 @@ class ImageAnnotator:
                       number_mappings: Dict[str, str],
                       output_filename: str) -> Path:
         
-        # Load image with PIL for better text rendering
-        img = Image.open(image_path)
-        draw = ImageDraw.Draw(img)
+        # Load original image
+        original_img = Image.open(image_path)
+        original_width, original_height = original_img.size
+        
+        # Define expansion width for side margins
+        side_expansion = 250  # 250px on each side for labels
+        
+        # Create expanded canvas
+        expanded_width = original_width + (side_expansion * 2)
+        expanded_height = original_height
+        expanded_img = Image.new('RGB', (expanded_width, expanded_height), 'white')
+        
+        # Paste original image in the center
+        expanded_img.paste(original_img, (side_expansion, 0))
+        
+        # Create draw object for expanded image
+        draw = ImageDraw.Draw(expanded_img)
         
         # Get fonts using font manager
         font = self.font_manager.get_font(16)
@@ -109,19 +123,27 @@ class ImageAnnotator:
             bbox = region['bbox']
             center = region['center']
             
-            # Calculate optimal label position (avoiding drawing area)
-            arrow_end = (int(center['x']), int(center['y']))
-            arrow_start, bend_point = self._calculate_optimal_label_position(img, center, bbox)
+            # Adjust center coordinates for expanded image (add left expansion offset)
+            adjusted_center = {
+                'x': center['x'] + side_expansion,
+                'y': center['y']
+            }
+            
+            # Calculate optimal label position in expanded areas
+            arrow_end = (int(adjusted_center['x']), int(adjusted_center['y']))
+            arrow_start, bend_point = self._calculate_optimal_label_position_expanded(
+                expanded_img, adjusted_center, bbox, side_expansion
+            )
             
             # Draw bent arrow (L-shaped) to avoid covering the number
             self._draw_bent_arrow(draw, arrow_start, bend_point, arrow_end)
             
-            # Draw label box with padding to avoid drawing area
+            # Draw label box in expanded area
             self._draw_label_box(draw, arrow_start, label, font or small_font)
         
         # Save annotated image
         output_path = self.output_dir / output_filename
-        img.save(str(output_path))
+        expanded_img.save(str(output_path))
         
         return output_path
     
@@ -222,6 +244,51 @@ class ImageAnnotator:
         else:  # bottom
             bend_point = (cx, cy + number_safety_distance)  # Safe vertical distance
         
+        return arrow_start, bend_point
+    
+    def _calculate_optimal_label_position_expanded(self, expanded_img: Image, center: Dict, bbox: Dict, side_expansion: int) -> Tuple[Tuple[int, int], Tuple[int, int]]:
+        """
+        Calculate optimal label position in expanded side areas
+        Returns: (arrow_start, bend_point) positions
+        """
+        img_width, img_height = expanded_img.size
+        cx, cy = int(center['x']), int(center['y'])
+        
+        # Original image boundaries (center area to avoid)
+        original_left = side_expansion
+        original_right = img_width - side_expansion
+        
+        # Define label areas in expanded regions
+        left_label_area = {
+            'x_range': (20, original_left - 20),  # Left expansion area
+            'y_range': (50, img_height - 50),
+            'side': 'left'
+        }
+        
+        right_label_area = {
+            'x_range': (original_right + 20, img_width - 20),  # Right expansion area
+            'y_range': (50, img_height - 50),
+            'side': 'right'
+        }
+        
+        # Choose the closer side for the label
+        distance_to_left = abs(cx - original_left)
+        distance_to_right = abs(cx - original_right)
+        
+        if distance_to_left <= distance_to_right:
+            # Use left expansion area
+            zone = left_label_area
+            label_x = zone['x_range'][0] + 30  # Inside left expansion
+            label_y = max(zone['y_range'][0], min(zone['y_range'][1], cy))
+            bend_point = (original_left - 30, cy)  # Just outside original image
+        else:
+            # Use right expansion area  
+            zone = right_label_area
+            label_x = zone['x_range'][1] - 30  # Inside right expansion
+            label_y = max(zone['y_range'][0], min(zone['y_range'][1], cy))
+            bend_point = (original_right + 30, cy)  # Just outside original image
+        
+        arrow_start = (label_x, label_y)
         return arrow_start, bend_point
     
     def _draw_bent_arrow(self, draw: ImageDraw, arrow_start: Tuple[int, int], bend_point: Tuple[int, int], arrow_end: Tuple[int, int]):
