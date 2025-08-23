@@ -152,12 +152,26 @@ const formatDate = (timestamp) => {
   return date.toLocaleString('ko-KR')
 }
 
-const getImageUrl = (s3Key) => {
-  return `${API_BASE_URL}/images/${encodeURIComponent(s3Key)}`
+const getImageUrl = (image) => {
+  // If image is an object with url property, use it
+  if (typeof image === 'object' && image.url) {
+    return image.url
+  }
+  // Otherwise fallback to old behavior (for backward compatibility)
+  return `${API_BASE_URL}/images/${encodeURIComponent(image)}`
 }
 
-const getImageName = (s3Key) => {
-  return s3Key.split('/').pop()
+const getImageName = (image) => {
+  // If image is an object with filename property, use it
+  if (typeof image === 'object' && image.filename) {
+    return image.filename
+  }
+  // If image is an object with key property, extract filename from it
+  if (typeof image === 'object' && image.key) {
+    return image.key.split('/').pop()
+  }
+  // Otherwise assume it's a string key
+  return image.split('/').pop()
 }
 
 const openModal = (imageUrl) => {

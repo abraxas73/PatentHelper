@@ -153,6 +153,11 @@ Resources:
     Type: AWS::Serverless::Api
     Properties:
       StageName: !Ref Environment
+      BinaryMediaTypes:
+        - image/png
+        - image/jpeg
+        - image/jpg
+        - image/*
       Cors:
         AllowMethods: "'*'"
         AllowHeaders: "'*'"
@@ -167,6 +172,13 @@ Resources:
       FunctionName: !Sub patent-helper-upload-${Environment}
       CodeUri: ../lambda/upload/
       Handler: handler.lambda_handler
+      Timeout: 30
+      Environment:
+        Variables:
+          CLUSTER_NAME: !Ref ECSCluster
+          TASK_DEFINITION: !Ref OCRTaskDefinition
+          SUBNET_IDS: !Ref PublicSubnet
+          SECURITY_GROUP_ID: !Ref ECSSecurityGroup
       Events:
         ApiEvent:
           Type: Api
@@ -179,8 +191,17 @@ Resources:
             BucketName: !Ref DocumentBucket
         - DynamoDBCrudPolicy:
             TableName: !Ref JobTable
-        - SQSSendMessagePolicy:
-            QueueName: !GetAtt ProcessingQueue.QueueName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ecs:RunTask
+              Resource: !Ref OCRTaskDefinition
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource:
+                - !GetAtt ECSExecutionRole.Arn
+                - !GetAtt ECSTaskRole.Arn
 
   StatusFunction:
     Type: AWS::Serverless::Function
@@ -234,6 +255,23 @@ Resources:
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref JobTable
+
+  ImageProxyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub patent-helper-image-proxy-${Environment}
+      CodeUri: ../lambda/image-proxy/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /images/{proxy+}
+            Method: GET
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref DocumentBucket
 
   # ECS Cluster for OCR Processing
   ECSCluster:

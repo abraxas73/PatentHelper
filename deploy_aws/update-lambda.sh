@@ -34,6 +34,32 @@ aws lambda update-function-code \
     --function-name $UPLOAD_FUNCTION \
     --zip-file fileb://../upload.zip \
     --region $REGION > /dev/null
+
+# Update Upload Lambda environment variables for direct ECS execution
+echo -e "${YELLOW}🔧 Updating Upload Lambda configuration...${NC}"
+# Get existing VPC resources
+SUBNET_ID=$(aws ec2 describe-subnets --filters "Name=tag:aws:cloudformation:stack-name,Values=*patent*" --query "Subnets[0].SubnetId" --output text --region $REGION 2>/dev/null || echo "")
+SG_ID=$(aws ec2 describe-security-groups --filters "Name=tag:aws:cloudformation:stack-name,Values=*patent*" --query "SecurityGroups[0].GroupId" --output text --region $REGION 2>/dev/null || echo "")
+
+if [ ! -z "$SUBNET_ID" ] && [ ! -z "$SG_ID" ]; then
+    aws lambda update-function-configuration \
+        --function-name $UPLOAD_FUNCTION \
+        --environment "Variables={
+            BUCKET_NAME=patent-helper-documents-${ENVIRONMENT},
+            TABLE_NAME=patent-helper-jobs-${ENVIRONMENT},
+            QUEUE_URL=https://sqs.${REGION}.amazonaws.com/$(aws sts get-caller-identity --query Account --output text)/patent-helper-processing-${ENVIRONMENT},
+            CLUSTER_NAME=patent-helper-cluster-${ENVIRONMENT},
+            TASK_DEFINITION=patent-helper-ocr-${ENVIRONMENT},
+            SUBNET_IDS=$SUBNET_ID,
+            SECURITY_GROUP_ID=$SG_ID
+        }" \
+        --timeout 30 \
+        --region $REGION > /dev/null
+    echo -e "${GREEN}✓ Upload Lambda configuration updated${NC}"
+else
+    echo -e "${YELLOW}⚠ Could not find VPC resources - skipping configuration update${NC}"
+fi
+
 cd ../..
 
 # Update Status Lambda

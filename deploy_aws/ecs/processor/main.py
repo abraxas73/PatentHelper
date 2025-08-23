@@ -312,9 +312,26 @@ def main():
     if JOB_ID and S3_KEY:
         # Single job mode (triggered by Lambda)
         print(f"Processing single job: {JOB_ID}")
-        process_pdf(JOB_ID, S3_KEY)
+        try:
+            # Update status to show container has started
+            update_job_status(JOB_ID, 'PROCESSING', 
+                            message='Processing container started', 
+                            progress=5)
+            process_pdf(JOB_ID, S3_KEY)
+            print(f"Successfully processed job {JOB_ID}")
+        except Exception as e:
+            print(f"Fatal error processing job {JOB_ID}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            # Ensure the error is recorded
+            try:
+                update_job_status(JOB_ID, 'FAILED', 
+                                message=f"Container error: {str(e)}")
+            except:
+                pass
+            sys.exit(1)
     else:
-        # Queue processing mode
+        # Queue processing mode (fallback)
         print("Starting queue processor...")
         process_from_queue()
 
