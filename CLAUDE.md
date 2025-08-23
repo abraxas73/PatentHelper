@@ -11,92 +11,98 @@
 
 ## 아키텍처
 
-### 레이어드 아키텍처 (Layered Architecture)
+### 클라우드 서버리스 아키텍처 (AWS Serverless + ECS)
 ```
 ┌─────────────────────────────────────────┐
 │         Frontend (Vue.js)                │
 │  - PDF 업로드 인터페이스                │
-│  - 이미지 갤러리 뷰                     │
+│  - 이미지 갤러리 뷰 (탭/그리드 통합)    │
+│  - 실시간 진행 상황 모니터링             │
+│  - 통합 ImageModal (확대/다운로드)       │
 │  - 반응형 UI 컴포넌트                   │
 └─────────────────────────────────────────┘
                     ↓ HTTP/REST
 ┌─────────────────────────────────────────┐
-│      Backend API (FastAPI)              │
-│  - REST endpoints                       │
-│  - Request/Response handling            │
-│  - File upload processing               │
+│      AWS Lambda Functions               │
+│  - Upload Handler (파일 업로드)          │
+│  - Status Checker (작업 상태 확인)       │
+│  - Result Fetcher (결과 조회)           │
+│  - History Manager (작업 이력)          │
 └─────────────────────────────────────────┘
-                    ↓
+                    ↓ 
 ┌─────────────────────────────────────────┐
-│       Business Logic Layer              │
+│         AWS ECS Fargate                 │
 │  - PDF Processor (PDF 파싱)             │
-│  - Image Extractor (도면 추출)          │
+│  - Image Extractor (도면 추출 + OCR)    │
 │  - Text Analyzer (텍스트 분석)          │
-│  - Image Annotator (어노테이션)         │
+│  - Image Annotator (한국어 어노테이션)   │
 └─────────────────────────────────────────┘
                     ↓
 ┌─────────────────────────────────────────┐
-│       Data Access Layer                 │
-│  - File Storage (로컬 파일시스템)       │
-│  - Configuration Management              │
+│       AWS Cloud Storage                 │
+│  - S3 (파일 저장소)                    │
+│  - DynamoDB (작업 상태/이력)            │
+│  - CloudWatch (로깅/모니터링)           │
 └─────────────────────────────────────────┘
 ```
 
-### 데이터 플로우
-1. **PDF 업로드** → API 엔드포인트
-2. **도면 추출** → PDF에서 이미지 추출
-3. **OCR 처리** → 도면 번호 및 부품 번호 인식
-4. **텍스트 분석** → PDF 텍스트에서 번호-명칭 매핑 추출
-5. **이미지 어노테이션** → 번호 위치에 명칭 추가
-6. **결과 저장** → 원본 및 어노테이션 이미지 저장
+### 데이터 플로우 (서버리스)
+1. **PDF 업로드** → Lambda Upload Handler → S3 저장
+2. **작업 시작** → ECS Task 실행 (Fargate)
+3. **도면 추출** → PDF에서 이미지 추출 
+4. **OCR 처리** → EasyOCR로 도면 번호 및 부품 번호 인식 (한국어 지원)
+5. **텍스트 분석** → PDF 텍스트에서 번호-명칭 매핑 추출
+6. **이미지 어노테이션** → 유니코드 폰트로 한국어 명칭 추가
+7. **결과 저장** → S3 presigned URL로 이미지 저장
+8. **상태 업데이트** → DynamoDB에 진행 상황 및 결과 저장
+9. **결과 조회** → Lambda Result Fetcher → 프론트엔드 표시
 
 ## 폴더 구조
 
 ```
 PatentHelper/
-├── app/                      # 백엔드 애플리케이션 코드
-│   ├── __init__.py
-│   ├── api/                  # API 레이어
-│   │   ├── __init__.py
-│   │   └── endpoints.py      # FastAPI 라우트 정의
-│   ├── core/                 # 핵심 비즈니스 로직
-│   │   ├── __init__.py
-│   │   └── pdf_processor.py  # PDF 처리 모듈
+├── app/                      # 백엔드 애플리케이션 코드 (로컬 개발용)
 │   ├── services/             # 서비스 레이어
-│   │   ├── __init__.py
 │   │   ├── image_extractor.py    # 이미지 추출 및 OCR
 │   │   ├── text_analyzer.py      # 텍스트 분석
-│   │   └── image_annotator.py    # 이미지 어노테이션
-│   ├── models/               # 데이터 모델
-│   │   ├── __init__.py
-│   │   └── schemas.py        # Pydantic 스키마
-│   ├── config/               # 설정 관리
-│   │   ├── __init__.py
-│   │   └── settings.py       # 환경 설정
-│   └── utils/                # 유틸리티
-│       └── __init__.py
+│   │   └── image_annotator.py    # 한국어 어노테이션 (FontManager)
+│   └── core/                 # 핵심 비즈니스 로직
+│       └── pdf_processor.py  # PDF 처리 모듈
 ├── front/                    # 프론트엔드 (Vue.js)
 │   ├── src/
-│   │   ├── App.vue          # 메인 Vue 컴포넌트
-│   │   ├── main.js          # 애플리케이션 진입점
-│   │   └── style.css        # 글로벌 스타일
-│   ├── index.html           # HTML 템플릿
-│   ├── vite.config.js       # Vite 설정
-│   ├── package.json         # Node.js 의존성
-│   └── node_modules/        # NPM 패키지
-├── data/                     # 데이터 저장소
-│   ├── input/                # 업로드된 PDF 파일
-│   └── output/
-│       ├── images/           # 추출된 원본 도면
-│       └── annotated/        # 어노테이션된 도면
-├── logs/                     # 로그 파일
+│   │   ├── views/
+│   │   │   ├── MainView.vue        # 메인 페이지 (업로드/결과)
+│   │   │   └── JobResultView.vue   # 작업 결과 상세 페이지
+│   │   ├── ImageModal.vue          # 통합 이미지 모달 (확대/다운로드)
+│   │   ├── App.vue                 # 메인 Vue 컴포넌트
+│   │   ├── router.js               # Vue Router 설정
+│   │   └── config.js               # API 엔드포인트 설정
+│   └── dist/                       # 빌드된 정적 파일
+├── deploy_aws/               # AWS 서버리스 배포
+│   ├── infrastructure/       # CloudFormation 템플릿
+│   │   └── template.yaml     # AWS 인프라 정의
+│   ├── lambda/               # Lambda Functions
+│   │   ├── upload/           # 파일 업로드 핸들러
+│   │   ├── status/           # 작업 상태 확인
+│   │   ├── result/           # 결과 조회
+│   │   ├── history/          # 작업 이력 관리
+│   │   └── image-proxy/      # 이미지 프록시
+│   ├── ecs/                  # ECS Fargate 처리 컨테이너
+│   │   ├── Dockerfile        # 유니코드 폰트 + Python 환경
+│   │   ├── app/              # 처리 로직 (app/ 복사본)
+│   │   ├── processor/        # ECS 메인 처리기
+│   │   └── requirements.txt  # Python 의존성
+│   ├── frontend/             # 프론트엔드 빌드 설정
+│   └── scripts/              # 배포 스크립트
+├── deploy_server/            # 전용 서버 배포 (OCI)
+│   ├── docker-compose.prod.yml
+│   ├── nginx.conf
+│   └── deploy.sh
+├── data/                     # 로컬 개발 데이터
+├── logs/                     # 로컬 개발 로그
 ├── tests/                    # 테스트 코드
-├── main.py                   # 백엔드 진입점
-├── test_ocr.py              # OCR 테스트 스크립트
-├── test_patent_diagram.png  # 테스트 이미지
-├── requirements.txt          # Python 패키지 의존성
-├── .env.example              # 환경변수 예시
-├── .env                      # 환경 설정
+├── main.py                   # 로컬 개발 서버
+├── requirements.txt          # Python 의존성
 ├── README.md                 # 프로젝트 문서
 └── CLAUDE.md                 # 프로젝트 명세
 
@@ -153,13 +159,22 @@ PatentHelper/
 5. **Vue.js**: 간단한 학습 곡선, 반응형 UI, 컴포넌트 기반
 6. **레이어드 아키텍처**: 관심사 분리, 유지보수 용이, 테스트 가능
 
-## API 엔드포인트
+## API 엔드포인트 (AWS Lambda)
 
+### 업로드 및 처리
+- `POST /upload` - PDF 업로드 및 ECS 작업 시작
+- `GET /status/{jobId}` - 작업 상태 실시간 확인
+- `GET /result/{jobId}` - 작업 결과 조회 (presigned URLs)
+- `GET /history?limit=50` - 작업 이력 조회
+
+### 이미지 서비스
+- `GET /images/{key}` - S3 이미지 프록시 (presigned URL 생성)
+
+### 로컬 개발용 (FastAPI)
 - `POST /api/v1/process` - PDF 업로드 및 처리
 - `GET /api/v1/status` - 서비스 상태 확인
 - `GET /api/v1/images/{filename}` - 이미지 조회
 - `GET /api/v1/list-images` - 이미지 목록 조회
-- `DELETE /api/v1/cleanup` - 임시 파일 정리
 
 ## 실행 방법
 
@@ -218,11 +233,31 @@ npm run preview
 - ReDoc: http://localhost:8000/redoc
 - API 상태: http://localhost:8000/api/v1/status
 
-## 현재 상태
-- ✅ 백엔드 서버 정상 작동 중 (FastAPI)
-- ✅ 프론트엔드 서버 정상 작동 중 (Vue.js)
-- ✅ OCR 기능 활성화 (EasyOCR 설치 완료)
-- ✅ 한국어/영어 텍스트 인식 지원
-- ✅ PDF 업로드 및 도면 추출 기능
-- ✅ 이미지 리스트 표시 및 어노테이션
-- ✅ 반응형 UI 디자인
+## 현재 상태 및 주요 기능
+
+### ✅ 완료된 기능
+- **AWS 서버리스 아키텍처**: Lambda + ECS Fargate 기반 클라우드 배포
+- **실시간 작업 모니터링**: 진행 상황 실시간 업데이트 (2초 간격 폴링)
+- **한국어 텍스트 지원**: 유니코드 폰트 (Noto Sans CJK, DejaVu) + FontManager
+- **고급 이미지 뷰어**: ImageModal 컴포넌트 (확대, 다운로드, 형식 변환)
+- **통합 UI 경험**: 메인 페이지와 결과 페이지 일관된 디자인
+- **작업 이력 관리**: localStorage + DynamoDB 백업
+- **반응형 디자인**: 모바일/태블릿 최적화
+
+### 🚀 핵심 개선사항
+1. **처리 속도**: 기존 90-120초 → 즉시 시작 (ECS 직접 호출)
+2. **한국어 렌더링**: PIL 'latin-1' 오류 완전 해결
+3. **UI 일관성**: 이미지 배열/매핑 정보 표시 통일
+4. **다운로드 기능**: S3 presigned URL 지원, 다중 형식 변환
+5. **에러 핸들링**: 상세한 진행 단계별 오류 처리
+
+### 📊 기술 스택
+- **Frontend**: Vue.js 3 + Vite + Vue Router
+- **Backend**: AWS Lambda (Node.js) + ECS Fargate (Python)
+- **Processing**: EasyOCR + OpenCV + Pillow + pypdfium2
+- **Storage**: AWS S3 + DynamoDB
+- **Deployment**: GitHub Actions + CloudFormation
+
+### 🔧 배포 환경
+- **AWS 프로덕션**: https://d1k8m3z5xkr8hb.cloudfront.net (서버리스)
+- **로컬 개발**: http://localhost:3000 (프론트엔드) + http://localhost:8000 (백엔드)
