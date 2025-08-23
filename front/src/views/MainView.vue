@@ -175,7 +175,18 @@
                 <div class="history-filename">{{ getJobFilename(job) }}</div>
                 <div class="history-date">{{ formatDate(job.createdAt) }}</div>
                 <div class="history-status">
-                  <span class="status-badge" :class="job.status">{{ getStatusText(job.status) }}</span>
+                  <span 
+                    v-if="job.status === 'PROCESSING'"
+                    class="status-badge clickable" 
+                    :class="job.status"
+                    @click="trackProcessingJob(job)"
+                    title="클릭하여 진행 상황 보기"
+                  >
+                    {{ getStatusText(job.status) }}
+                  </span>
+                  <span v-else class="status-badge" :class="job.status">
+                    {{ getStatusText(job.status) }}
+                  </span>
                 </div>
               </div>
               <router-link :to="`/job/${job.jobId}`" class="view-button">
@@ -547,6 +558,35 @@ export default {
       return '파일명 없음'
     }
 
+    const trackProcessingJob = (job) => {
+      // Hide history modal
+      showHistory.value = false
+      
+      // Set current job ID
+      currentJobId.value = job.jobId
+      
+      // Update progress message from job data
+      if (job.message) {
+        progressMessage.value = job.message
+      }
+      if (job.progress) {
+        progress.value = job.progress
+      }
+      
+      // Show processing status
+      isProcessing.value = true
+      processingTime.value = Math.floor((Date.now() - (job.createdAt * 1000)) / 1000)
+      
+      // Start status check for this job
+      startStatusCheck()
+      startTimer()
+      
+      // Optionally, you could also load the file info if available
+      if (job.fileName || job.filename) {
+        uploadedFile.value = { name: getJobFilename(job) }
+      }
+    }
+
     // Load history on mount
     onMounted(() => {
       loadHistory()
@@ -637,6 +677,16 @@ export default {
 .status-badge.FAILED {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.status-badge.clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.status-badge.clickable:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .status-message {
