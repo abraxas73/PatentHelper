@@ -69,8 +69,8 @@ class ImageAnnotator:
             # Draw arrowhead
             self._draw_arrowhead(draw, arrow_start, arrow_end)
             
-            # Draw label box
-            self._draw_label_box(draw, arrow_start, f"{number}: {label}", font or small_font)
+            # Draw label box (without the number since it's already in the drawing)
+            self._draw_label_box(draw, arrow_start, label, font or small_font)
         
         # Save annotated image
         output_path = self.output_dir / output_filename

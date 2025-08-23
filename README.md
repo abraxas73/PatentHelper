@@ -109,3 +109,6 @@ result = response.json()
 print(f"추출된 이미지: {len(result['extracted_images'])}개")
 print(f"발견된 번호-명칭 매핑: {len(result['number_mappings'])}개")
 ```
+
+## etc
+- ssh -i ~/.ssh/ssh-key-2025-08-19.key ubuntu@152.67.211.0

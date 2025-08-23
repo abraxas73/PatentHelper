@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 class TextAnalyzer:
     def __init__(self):
-        # Patterns for extracting number-label mappings
+        # Patterns for extracting number-label mappings (부호의 설명 섹션)
         self.patterns = {
             'basic': r'(\d{1,3})\s*[:：]\s*([가-힣\w\s]+)',
             'dash': r'(\d{1,3})\s*[-－]\s*([가-힣\w\s]+)',
@@ -19,7 +19,63 @@ class TextAnalyzer:
             'bracket': r'\[\s*(\d{1,3})\s*\]\s*([가-힣\w\s]+)'
         }
         
+        # Keywords that indicate part/component listings
+        self.part_list_keywords = [
+            '부호의 설명',
+            '도면 부호의 설명',
+            '참조 부호의 설명',
+            '부품 목록',
+            '구성요소',
+            '도면의 주요 부분',
+            '도면부호',
+            '참조번호',
+            '도면 참조 부호',
+            'Reference Numerals',
+            'Parts List',
+            'Component List'
+        ]
+        
     def extract_number_mappings(self, text: str) -> Dict[str, str]:
+        mappings = {}
+        
+        # First, try to find dedicated part list section
+        part_list_section = self._extract_part_list_section(text)
+        
+        if part_list_section:
+            # Extract mappings from part list section (higher priority)
+            mappings = self._extract_from_section(part_list_section)
+            logger.info(f"Found {len(mappings)} mappings from part list section")
+        
+        # If not enough mappings found, search entire text
+        if len(mappings) < 5:
+            full_text_mappings = self._extract_from_section(text)
+            # Merge, preferring part list mappings
+            for num, label in full_text_mappings.items():
+                if num not in mappings:
+                    mappings[num] = label
+        
+        # Post-process mappings
+        mappings = self._post_process_mappings(mappings)
+        
+        return mappings
+    
+    def _extract_part_list_section(self, text: str) -> str:
+        """Extract the section that contains part/component listings"""
+        for keyword in self.part_list_keywords:
+            pattern = rf'{keyword}.*?(?=\n\n|\Z)'
+            match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+            if match:
+                section = text[match.start():]
+                # Find the end of this section (usually ends with another heading or double newline)
+                end_pattern = r'\n\s*\n\s*[가-힣\w\s]{2,20}\s*\n|발명의 상세한 설명|청구범위|도면의 간단한 설명'
+                end_match = re.search(end_pattern, section)
+                if end_match:
+                    section = section[:end_match.start()]
+                return section
+        return ""
+    
+    def _extract_from_section(self, text: str) -> Dict[str, str]:
+        """Extract number-label mappings from a text section"""
         mappings = {}
         
         # Clean text
@@ -35,16 +91,35 @@ class TextAnalyzer:
                 # Clean and validate label
                 label = self._clean_label(label)
                 
-                if label and len(label) > 1:
+                # Only accept short, component-like labels (not full sentences)
+                if label and 2 <= len(label) <= 20 and not self._is_sentence(label):
                     # Avoid overwriting with less specific labels
-                    if number not in mappings or len(label) > len(mappings[number]):
+                    if number not in mappings or len(label) < len(mappings[number]):
                         mappings[number] = label
                         logger.debug(f"Found mapping via {pattern_name}: {number} -> {label}")
         
-        # Post-process mappings
-        mappings = self._post_process_mappings(mappings)
-        
         return mappings
+    
+    def _is_sentence(self, text: str) -> bool:
+        """Check if text is a sentence rather than a component name"""
+        # Sentences typically have verbs, are longer, or end with periods
+        sentence_indicators = [
+            '이다', '있다', '되다', '하다', '한다', '된다',
+            '이고', '있고', '되고', '하고',
+            '으로', '에서', '에게', '부터', '까지',
+            '.', '。'
+        ]
+        
+        # Long text is likely a sentence
+        if len(text) > 30:
+            return True
+        
+        # Check for sentence patterns
+        for indicator in sentence_indicators:
+            if indicator in text:
+                return True
+        
+        return False
     
     def find_figure_descriptions(self, text: str) -> Dict[str, Dict[str, str]]:
         figure_descriptions = {}

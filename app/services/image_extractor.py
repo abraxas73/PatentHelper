@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 import logging
 import re
+from app.services.image_processor import ImageProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ class ImageExtractor:
         self.reader = None
         self.ocr_languages = ocr_languages
         self.use_gpu = use_gpu
+        self.image_processor = ImageProcessor()
         
     def save_image(self, pil_image: Image.Image, output_path: Path) -> Path:
         pil_image.save(str(output_path))
@@ -32,13 +34,20 @@ class ImageExtractor:
             
             if not pil_image:
                 continue
+            
+            # Process image to remove text regions and focus on drawing
+            try:
+                processed_image = self.image_processor.process_extracted_image(pil_image)
+            except Exception as e:
+                logger.warning(f"Image processing failed, using original: {e}")
+                processed_image = pil_image
                 
             # Generate filename
             filename = f"{pdf_name}_page{page_num + 1}_img{img_index + 1}.png"
             output_path = self.output_dir / filename
             
-            # Save image
-            saved_path = self.save_image(pil_image, output_path)
+            # Save processed image
+            saved_path = self.save_image(processed_image, output_path)
             
             # Detect figure number
             figure_info = self.detect_figure_number(str(saved_path))

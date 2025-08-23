@@ -234,6 +234,7 @@ export default {
       formData.append('file', selectedFile.value)
 
       try {
+        const apiUrl = import.meta.env.PROD ? '' : ''
         const response = await axios.post('/api/v1/process', formData, {
           headers: {
             'Content-Type': 'multipart/form-data'

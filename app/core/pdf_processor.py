@@ -43,34 +43,95 @@ class PDFProcessor:
     
     def extract_images_from_page(self, page_num: int) -> List[Dict[str, Any]]:
         page = self.pdfium_doc[page_num]
+        plumber_page = self.plumber_pdf.pages[page_num]
         
-        # Render page as image at high resolution
-        scale = 2.0  # 2x resolution
-        bitmap = page.render(scale=scale)
-        pil_image = bitmap.to_pil()
-        
-        # For now, treat the entire page as an image if it contains graphics
-        # This is a simplified approach - in production, you might want to detect actual images
         images = []
         
-        # Check if page has significant content (not just text)
-        plumber_page = self.plumber_pdf.pages[page_num]
-        if plumber_page.images or self._page_has_graphics(plumber_page):
-            img_data = {
-                'page': page_num,
-                'index': 0,
-                'pil_image': pil_image,
-                'width': pil_image.width,
-                'height': pil_image.height,
-                'xref': None
-            }
-            images.append(img_data)
+        # Try a simpler approach - just render the whole page if it looks like a drawing
+        # Skip trying to extract embedded images which is causing issues
+        try:
+            # Check if this page likely contains a drawing
+            if self._is_drawing_page(plumber_page):
+                # Render the entire page
+                scale = 2.0
+                bitmap = page.render(scale=scale)
+                pil_image = bitmap.to_pil()
+                
+                img_data = {
+                    'page': page_num,
+                    'index': 0,
+                    'pil_image': pil_image,
+                    'width': pil_image.width,
+                    'height': pil_image.height,
+                    'xref': None,
+                    'bbox': {
+                        'x0': 0,
+                        'y0': 0,
+                        'x1': plumber_page.width,
+                        'y1': plumber_page.height
+                    }
+                }
+                images.append(img_data)
+                logger.info(f"Extracted drawing from page {page_num + 1}")
+        except Exception as e:
+            logger.warning(f"Failed to extract images from page {page_num}: {e}")
             
         return images
     
-    def _page_has_graphics(self, page) -> bool:
-        # Simple heuristic: check if page has images or significant non-text content
-        return bool(page.images) or len(page.extract_text() or "") < 100
+    def _is_drawing_page(self, page) -> bool:
+        """Check if page likely contains a drawing"""
+        text = page.extract_text() or ""
+        
+        # Check for drawing indicators
+        drawing_keywords = ['도면', '도 ', 'Fig', 'Figure', '그림', 'Drawing', '【도', '[도']
+        has_drawing_keyword = any(keyword in text for keyword in drawing_keywords)
+        
+        # Check if page has images embedded
+        has_images = bool(page.images) if hasattr(page, 'images') else False
+        
+        # Check if page has curves or rectangles (typical in drawings)
+        has_curves = bool(page.curves) if hasattr(page, 'curves') else False
+        has_rects = bool(page.rects) if hasattr(page, 'rects') else False
+        
+        # Low text density suggests it might be a drawing
+        text_density = len(text) / (page.width * page.height) if page.width and page.height else 0
+        low_text_density = text_density < 0.01  # Increased threshold to be more inclusive
+        
+        # Page is likely a drawing if:
+        # 1. Has drawing keywords and low text density, OR
+        # 2. Has embedded images, OR
+        # 3. Has geometric shapes (curves/rects) and low text density
+        return has_drawing_keyword or has_images or (has_curves and low_text_density) or (has_rects and low_text_density)
+    
+    def _find_drawing_area(self, page) -> tuple:
+        """Find the main drawing area, excluding text-heavy regions"""
+        # Default to full page
+        x0, y0 = 0, 0
+        x1, y1 = page.width, page.height
+        
+        # Try to find text blocks to exclude
+        if hasattr(page, 'extract_words'):
+            words = page.extract_words()
+            if words:
+                # Find the main text area (usually at top or bottom)
+                text_y_positions = [w['top'] for w in words]
+                
+                # If text is concentrated at top, crop it out
+                if text_y_positions:
+                    avg_text_y = sum(text_y_positions) / len(text_y_positions)
+                    
+                    # If most text is in top 20% of page
+                    if avg_text_y < page.height * 0.2:
+                        y0 = max(text_y_positions) + 20  # Start below text
+                    
+                    # If most text is in bottom 20% of page
+                    elif avg_text_y > page.height * 0.8:
+                        y1 = min(text_y_positions) - 20  # End above text
+        
+        # Ensure we have a valid area
+        if x1 > x0 and y1 > y0:
+            return (x0, y0, x1, y1)
+        return None
     
     def extract_all_images(self) -> List[Dict[str, Any]]:
         all_images = []

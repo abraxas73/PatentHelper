@@ -52,6 +52,9 @@ yarn-error.log*
 data/
 
 # Test files
+tests/test_data/
+tests/*.png
+tests/*.pdf
 test_patent_diagram.png
 *.pdf
 *.jpg
