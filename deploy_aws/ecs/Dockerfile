@@ -19,6 +19,11 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Copy requirements first for better caching
 COPY deploy_aws/ecs/requirements.txt .
+
+# Install CPU-only torch first (smaller size for ECS)
+RUN pip install --no-cache-dir torch==2.3.0 torchvision==0.18.0 --index-url https://download.pytorch.org/whl/cpu
+
+# Install other Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Pre-download EasyOCR models to avoid runtime download
