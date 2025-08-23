@@ -115,17 +115,23 @@ class ImageAnnotator:
                         # Fallback calculation
                         max_label_width = max(max_label_width, len(label) * 10)
         
-        # Calculate minimum expansion needed (just enough for labels + small margin)
-        min_expansion = 80  # Minimum for arrows and margins
-        side_expansion = max(min_expansion, max_label_width + 40)  # Label width + arrow space
+        # Calculate optimized expansion - just enough for labels
+        arrow_length = 30  # Short arrow length
+        padding = 15  # Edge padding
+        side_expansion = max_label_width + arrow_length + padding  # Optimized expansion
         
-        # Create expanded canvas
+        # Calculate vertical expansion needed for labels that go up/down
+        label_height = 30  # Approximate label box height
+        max_vertical_offset = 100  # Maximum distance labels can be shifted vertically
+        vertical_expansion = max_vertical_offset + label_height  # Space for shifted labels
+        
+        # Create expanded canvas with both horizontal and vertical expansion
         expanded_width = original_width + (side_expansion * 2)
-        expanded_height = original_height
+        expanded_height = original_height + (vertical_expansion * 2)  # Add top and bottom expansion
         expanded_img = Image.new('RGB', (expanded_width, expanded_height), 'white')
         
-        # Paste original image in the center
-        expanded_img.paste(original_img, (side_expansion, 0))
+        # Paste original image in the center (accounting for vertical expansion too)
+        expanded_img.paste(original_img, (side_expansion, vertical_expansion))
         
         # Create draw object for expanded image
         draw = ImageDraw.Draw(expanded_img)
@@ -145,10 +151,10 @@ class ImageAnnotator:
             bbox = region['bbox']
             center = region['center']
             
-            # Adjust center coordinates for expanded image (add left expansion offset)
+            # Adjust center coordinates for expanded image (add both horizontal and vertical offsets)
             adjusted_center = {
                 'x': center['x'] + side_expansion,
-                'y': center['y']
+                'y': center['y'] + vertical_expansion  # Also adjust for vertical expansion
             }
             
             # Calculate optimal label position in expanded areas with overlap avoidance
@@ -291,18 +297,37 @@ class ImageAnnotator:
         distance_to_left = abs(cx - original_left)
         distance_to_right = abs(cx - original_right)
         
+        # Calculate label dimensions for proper positioning
+        label_width = 150  # Estimated max label width
+        if font:
+            try:
+                # Get actual label width if we can
+                temp_img = Image.new('RGB', (1, 1))
+                temp_draw = ImageDraw.Draw(temp_img)
+                # Find the label text for this position
+                for key, value in bbox.items():
+                    if isinstance(value, str):
+                        test_bbox = temp_draw.textbbox((0, 0), value, font=font)
+                        label_width = max(label_width, test_bbox[2] - test_bbox[0] + 20)
+                        break
+            except:
+                pass
+        
         if distance_to_left <= distance_to_right:
             # Use left expansion area
             side = 'left'
-            label_x = 10  # Close to left edge
+            label_x = 10  # Close to left edge with padding
             base_y = cy
-            bend_point = (original_left - 15, cy)  # Just outside the image
+            # Short arrow - just enough to connect to label
+            bend_point = (original_left - 10, cy)  # Very close to image edge
         else:
             # Use right expansion area  
             side = 'right'
-            label_x = img_width - 10  # Close to right edge (will be adjusted for text width)
+            # Position label so it won't be cut off - account for label width
+            label_x = img_width - label_width - 15  # Leave room for the full label
             base_y = cy
-            bend_point = (original_right + 15, cy)  # Just outside the image
+            # Short arrow - just enough to connect to label
+            bend_point = (original_right + 10, cy)  # Very close to image edge
         
         # Check for overlaps with existing labels on the same side
         label_height = 25  # Approximate label height
@@ -310,6 +335,10 @@ class ImageAnnotator:
         
         # Get existing positions for this side
         existing_positions = label_positions[side]
+        
+        # Calculate safe Y boundaries (accounting for vertical expansion)
+        min_safe_y = label_height  # Top boundary with padding
+        max_safe_y = img_height - label_height  # Bottom boundary with padding
         
         # Find a non-overlapping Y position
         if existing_positions:
@@ -320,9 +349,14 @@ class ImageAnnotator:
             overlapping = True
             offset = 0
             direction = 1  # Start by trying to move down
+            max_offset = 80  # Reduced max offset to stay within boundaries
             
-            while overlapping and abs(offset) < 200:  # Max offset to prevent infinite loop
+            while overlapping and abs(offset) < max_offset:
                 test_y = base_y + offset
+                
+                # Ensure test_y stays within safe boundaries
+                test_y = max(min_safe_y, min(test_y, max_safe_y))
+                
                 overlapping = False
                 
                 for existing_x, existing_y in existing_positions:
@@ -341,6 +375,9 @@ class ImageAnnotator:
                         direction = 1
                 else:
                     final_y = test_y
+        
+        # Final safety check - ensure label stays within canvas
+        final_y = max(min_safe_y, min(final_y, max_safe_y))
         
         # Adjust bend point Y to match final label Y
         bend_point = (bend_point[0], final_y)

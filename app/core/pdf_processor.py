@@ -52,10 +52,42 @@ class PDFProcessor:
         try:
             # Check if this page likely contains a drawing
             if self._is_drawing_page(plumber_page):
+                # Skip first page header area (top 30%) to avoid logos
+                if page_num == 0:
+                    # First page - check if image is in the header area
+                    page_height = plumber_page.height
+                    header_threshold = page_height * 0.3
+                    
+                    # Check if the main content is below the header threshold
+                    # by examining where the actual drawing content starts
+                    drawing_area = self._find_drawing_area(plumber_page)
+                    if drawing_area:
+                        x0, y0, x1, y1 = drawing_area
+                        # If the drawing starts in the header area, skip this page
+                        if y0 < header_threshold and y1 < header_threshold:
+                            logger.info(f"Skipping header image on page {page_num + 1}")
+                            return images
+                
                 # Render the entire page
                 scale = 2.0
                 bitmap = page.render(scale=scale)
                 pil_image = bitmap.to_pil()
+                
+                # For first page, crop out the top 30% if needed
+                if page_num == 0:
+                    page_height = plumber_page.height
+                    header_threshold = page_height * 0.3
+                    
+                    # Convert PDF coordinates to image pixels
+                    pixels_per_point = pil_image.height / page_height
+                    crop_y = int(header_threshold * pixels_per_point)
+                    
+                    # Check if there's significant content below header
+                    # by checking if the cropped area is not too small
+                    if pil_image.height - crop_y > pil_image.height * 0.4:
+                        # Crop the image to exclude header
+                        pil_image = pil_image.crop((0, crop_y, pil_image.width, pil_image.height))
+                        logger.info(f"Cropped header area from page {page_num + 1}")
                 
                 img_data = {
                     'page': page_num,

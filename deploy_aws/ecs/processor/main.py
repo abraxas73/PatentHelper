@@ -128,7 +128,7 @@ def process_pdf(job_id, s3_key):
                              progress=40)
             
             number_mappings = text_analyzer.extract_number_mappings(full_text)
-            logger.info(f"Extracted {len(number_mappings)} number mappings")
+            logger.info(f"{len(number_mappings)} 개의 라벨링 매핑 발견")
             # Log sample mappings for debugging
             if number_mappings:
                 sample_items = list(number_mappings.items())[:3]
