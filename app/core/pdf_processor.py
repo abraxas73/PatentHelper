@@ -59,12 +59,22 @@ class PDFProcessor:
                 
                 x0, y0, x1, y1 = drawing_area
                 
-                # Skip if area is in first page header (top 30%)
+                # Skip if area is in first page header - more intelligent check
                 if page_num == 0:
                     page_height = plumber_page.height
-                    header_threshold = page_height * 0.3
-                    if y1 < header_threshold:
-                        logger.info(f"Skipping header image on page {page_num + 1}")
+                    
+                    # Check if this is actually a logo/header (small area at top)
+                    area_height = y1 - y0
+                    area_width = x1 - x0
+                    
+                    # If it's a small image at the very top, likely a logo
+                    if y0 < page_height * 0.15 and area_height < page_height * 0.2 and area_width < plumber_page.width * 0.5:
+                        logger.info(f"Skipping header logo on page {page_num + 1}")
+                        return images
+                    
+                    # If entire drawing is in top 20% and small, skip
+                    if y1 < page_height * 0.2 and area_height < page_height * 0.15:
+                        logger.info(f"Skipping small header image on page {page_num + 1}")
                         return images
                 
                 # Render the entire page first
@@ -140,15 +150,36 @@ class PDFProcessor:
         has_curves = bool(page.curves) if hasattr(page, 'curves') else False
         has_rects = bool(page.rects) if hasattr(page, 'rects') else False
         
+        # Count significant graphical elements
+        significant_rects = 0
+        if hasattr(page, 'rects') and page.rects:
+            for rect in page.rects:
+                width = abs(rect.get('x1', 0) - rect.get('x0', 0))
+                height = abs(rect.get('y1', 0) - rect.get('y0', 0))
+                if width > 50 or height > 50:  # Larger rectangles
+                    significant_rects += 1
+        
         # Low text density suggests it might be a drawing
         text_density = len(text) / (page.width * page.height) if page.width and page.height else 0
-        low_text_density = text_density < 0.01  # Increased threshold to be more inclusive
+        low_text_density = text_density < 0.005  # More strict threshold
+        
+        # Check if text is mainly short labels (typical in drawings)
+        words = page.extract_words() if hasattr(page, 'extract_words') else []
+        if words:
+            avg_word_length = sum(len(w.get('text', '')) for w in words) / len(words)
+            has_short_labels = avg_word_length < 5  # Short words typical in drawings
+        else:
+            has_short_labels = False
         
         # Page is likely a drawing if:
-        # 1. Has drawing keywords and low text density, OR
+        # 1. Has drawing keywords AND (low text OR short labels), OR
         # 2. Has embedded images, OR
-        # 3. Has geometric shapes (curves/rects) and low text density
-        return has_drawing_keyword or has_images or (has_curves and low_text_density) or (has_rects and low_text_density)
+        # 3. Has many significant rectangles (>3), OR
+        # 4. Has curves and low text density
+        return (has_drawing_keyword and (low_text_density or has_short_labels)) or \
+               has_images or \
+               significant_rects > 3 or \
+               (has_curves and low_text_density)
     
     def _find_drawing_area(self, page) -> tuple:
         """Find the main drawing area, excluding text-heavy regions"""
@@ -190,10 +221,16 @@ class PDFProcessor:
         if hasattr(page, 'images') and page.images:
             for img in page.images:
                 has_graphical_content = True
-                min_x = min(min_x, img.get('x0', 0))
-                min_y = min(min_y, img.get('y0', 0) if img.get('y0') is not None else img.get('top', 0))
-                max_x = max(max_x, img.get('x1', page.width))
-                max_y = max(max_y, img.get('y1', page.height) if img.get('y1') is not None else img.get('bottom', page.height))
+                # Use correct keys and handle None values properly
+                x0 = img.get('x0', 0) if img.get('x0') is not None else 0
+                y0 = img.get('top', 0) if img.get('top') is not None else img.get('y0', 0)
+                x1 = img.get('x1', page.width) if img.get('x1') is not None else page.width
+                y1 = img.get('bottom', page.height) if img.get('bottom') is not None else img.get('y1', page.height)
+                
+                min_x = min(min_x, x0)
+                min_y = min(min_y, y0)
+                max_x = max(max_x, x1)
+                max_y = max(max_y, y1)
                 logger.info(f"Found embedded image on page {page_num + 1}: ({min_x:.1f}, {min_y:.1f}) to ({max_x:.1f}, {max_y:.1f})")
         
         # 2. Check curves (often used in technical drawings)
@@ -216,10 +253,16 @@ class PDFProcessor:
                 height = abs(rect.get('y1', 0) - rect.get('y0', 0))
                 if width > 20 or height > 20:  # Significant size
                     has_graphical_content = True
-                    min_x = min(min_x, rect.get('x0', 0))
-                    min_y = min(min_y, rect.get('y0', 0) if rect.get('y0') is not None else rect.get('top', 0))
-                    max_x = max(max_x, rect.get('x1', page.width))
-                    max_y = max(max_y, rect.get('y1', page.height) if rect.get('y1') is not None else rect.get('bottom', page.height))
+                    # Use correct keys and handle None values
+                    x0 = rect.get('x0', 0) if rect.get('x0') is not None else 0
+                    y0 = rect.get('top', 0) if rect.get('top') is not None else rect.get('y0', 0)
+                    x1 = rect.get('x1', page.width) if rect.get('x1') is not None else page.width  
+                    y1 = rect.get('bottom', page.height) if rect.get('bottom') is not None else rect.get('y1', page.height)
+                    
+                    min_x = min(min_x, x0)
+                    min_y = min(min_y, y0)
+                    max_x = max(max_x, x1)
+                    max_y = max(max_y, y1)
         
         # 4. Check lines
         if hasattr(page, 'lines') and page.lines:
@@ -229,37 +272,57 @@ class PDFProcessor:
                          (line.get('y1', 0) - line.get('y0', 0))**2)**0.5
                 if length > 20:
                     has_graphical_content = True
-                    min_x = min(min_x, line.get('x0', 0), line.get('x1', 0))
-                    min_y = min(min_y, line.get('y0', 0) if line.get('y0') is not None else line.get('top', 0), 
-                               line.get('y1', 0) if line.get('y1') is not None else line.get('bottom', 0))
-                    max_x = max(max_x, line.get('x0', page.width), line.get('x1', page.width))
-                    max_y = max(max_y, line.get('y0', page.height) if line.get('y0') is not None else line.get('top', page.height), 
-                               line.get('y1', page.height) if line.get('y1') is not None else line.get('bottom', page.height))
+                    # Properly handle line coordinates
+                    x0 = line.get('x0', 0) if line.get('x0') is not None else 0
+                    y0 = line.get('top', 0) if line.get('top') is not None else line.get('y0', 0)
+                    x1 = line.get('x1', page.width) if line.get('x1') is not None else page.width
+                    y1 = line.get('bottom', page.height) if line.get('bottom') is not None else line.get('y1', page.height)
+                    
+                    min_x = min(min_x, x0, x1)
+                    min_y = min(min_y, y0, y1)
+                    max_x = max(max_x, x0, x1)
+                    max_y = max(max_y, y0, y1)
         
-        # 5. If no graphical content found but page has low text density, use text boundaries
+        # 5. If no graphical content found, check if it's a drawing with labels
         if not has_graphical_content:
             words = page.extract_words() if hasattr(page, 'extract_words') else []
             text = page.extract_text() or ""
             
-            # Check if this might be a drawing with numbers/labels
-            if words and len(text) < 500:  # Not too much text
-                # Find boundaries of all text (likely labels on drawing)
-                for word in words:
-                    min_x = min(min_x, word.get('x0', 0))
-                    min_y = min(min_y, word.get('top', 0))
-                    max_x = max(max_x, word.get('x1', page.width))
-                    max_y = max(max_y, word.get('bottom', page.height))
-                has_graphical_content = True
-                logger.info(f"Using text boundaries as drawing area on page {page_num + 1}")
+            # More intelligent text analysis
+            if words:
+                # Check if text consists mainly of numbers and short labels
+                numeric_words = sum(1 for w in words if any(c.isdigit() for c in w.get('text', '')))
+                short_words = sum(1 for w in words if len(w.get('text', '')) <= 5)
+                
+                # If mostly numbers/short labels and not too much text, likely a drawing
+                if (numeric_words > len(words) * 0.3 or short_words > len(words) * 0.5) and len(text) < 1000:
+                    # Find boundaries of drawing labels, excluding obvious text paragraphs
+                    drawing_words = []
+                    for word in words:
+                        word_text = word.get('text', '')
+                        # Include numbers and short labels
+                        if any(c.isdigit() for c in word_text) or len(word_text) <= 10:
+                            drawing_words.append(word)
+                    
+                    if drawing_words:
+                        for word in drawing_words:
+                            min_x = min(min_x, word.get('x0', 0))
+                            min_y = min(min_y, word.get('top', 0))
+                            max_x = max(max_x, word.get('x1', page.width))
+                            max_y = max(max_y, word.get('bottom', page.height))
+                        has_graphical_content = True
+                        logger.info(f"Using drawing labels as boundaries on page {page_num + 1}")
         
         # Return the found area or None
         if has_graphical_content and min_x < float('inf'):
-            # Add margin to ensure we don't cut off parts of the drawing
-            margin = 20
-            x0 = max(0, min_x - margin)
-            y0 = max(0, min_y - margin)
-            x1 = min(page.width, max_x + margin)
-            y1 = min(page.height, max_y + margin)
+            # Add LARGER margin for top/bottom to prevent cutting
+            h_margin = 20  # Horizontal margin
+            v_margin = 40  # Vertical margin (larger to prevent top/bottom cutting)
+            
+            x0 = max(0, min_x - h_margin)
+            y0 = max(0, min_y - v_margin)  # More margin at top
+            x1 = min(page.width, max_x + h_margin)
+            y1 = min(page.height, max_y + v_margin)  # More margin at bottom
             
             # Ensure minimum size
             min_width = 100
