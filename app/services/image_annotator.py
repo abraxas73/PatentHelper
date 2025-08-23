@@ -133,36 +133,39 @@ class ImageAnnotator:
         img_width, img_height = img.size
         cx, cy = int(center['x']), int(center['y'])
         
-        # Define margins to avoid drawing area
-        left_margin = 50
-        right_margin = 50
-        top_margin = 50
-        bottom_margin = 50
+        # Define much larger margins to completely avoid drawing area
+        left_margin = 120
+        right_margin = 120
+        top_margin = 80
+        bottom_margin = 80
+        
+        # Additional safety distance from drawing numbers
+        number_safety_distance = 80
         
         # Calculate label area boundaries (avoiding drawing center)
         label_zones = [
-            # Left side (outside drawing area)
+            # Left margin area (far from drawing)
             {
-                'x_range': (left_margin, min(img_width // 3, cx - 80)),
+                'x_range': (left_margin, min(img_width // 4, cx - 150)),
                 'y_range': (top_margin, img_height - bottom_margin),
                 'side': 'left'
             },
-            # Right side (outside drawing area)
+            # Right margin area (far from drawing)
             {
-                'x_range': (max(img_width * 2 // 3, cx + 80), img_width - right_margin),
+                'x_range': (max(img_width * 3 // 4, cx + 150), img_width - right_margin),
                 'y_range': (top_margin, img_height - bottom_margin),
                 'side': 'right'
             },
-            # Top side (outside drawing area)
+            # Top margin area (far from drawing)
             {
                 'x_range': (left_margin, img_width - right_margin),
-                'y_range': (top_margin, min(img_height // 3, cy - 60)),
+                'y_range': (top_margin, min(img_height // 4, cy - 120)),
                 'side': 'top'
             },
-            # Bottom side (outside drawing area)
+            # Bottom margin area (far from drawing)
             {
                 'x_range': (left_margin, img_width - right_margin),
-                'y_range': (max(img_height * 2 // 3, cy + 60), img_height - bottom_margin),
+                'y_range': (max(img_height * 3 // 4, cy + 120), img_height - bottom_margin),
                 'side': 'bottom'
             }
         ]
@@ -175,23 +178,23 @@ class ImageAnnotator:
             x_min, x_max = zone['x_range']
             y_min, y_max = zone['y_range']
             
-            # Skip if zone is too small
-            if x_max - x_min < 100 or y_max - y_min < 30:
+            # Skip if zone is too small or invalid
+            if x_max <= x_min or y_max <= y_min or x_max - x_min < 150 or y_max - y_min < 50:
                 continue
             
-            # Calculate a position within this zone
+            # Calculate a safe position within this margin zone
             if zone['side'] == 'left':
-                label_x = x_max - 20  # Near the edge of drawing area
-                label_y = max(y_min + 20, min(y_max - 20, cy))
+                label_x = x_min + 20  # Well inside the left margin
+                label_y = max(y_min + 30, min(y_max - 30, cy))
             elif zone['side'] == 'right':
-                label_x = x_min + 20  # Near the edge of drawing area
-                label_y = max(y_min + 20, min(y_max - 20, cy))
+                label_x = x_max - 20  # Well inside the right margin
+                label_y = max(y_min + 30, min(y_max - 30, cy))
             elif zone['side'] == 'top':
-                label_x = max(x_min + 20, min(x_max - 100, cx))
-                label_y = y_max - 20  # Near the edge of drawing area
+                label_x = max(x_min + 30, min(x_max - 150, cx))
+                label_y = y_min + 20  # Well inside the top margin
             else:  # bottom
-                label_x = max(x_min + 20, min(x_max - 100, cx))
-                label_y = y_min + 20  # Near the edge of drawing area
+                label_x = max(x_min + 30, min(x_max - 150, cx))
+                label_y = y_max - 20  # Well inside the bottom margin
             
             # Calculate distance from center
             distance = ((label_x - cx) ** 2 + (label_y - cy) ** 2) ** 0.5
@@ -201,23 +204,23 @@ class ImageAnnotator:
                 best_zone = zone
                 best_label_pos = (label_x, label_y)
         
-        # If no suitable zone found, fallback to simple offset
+        # If no suitable zone found, use right margin as fallback
         if best_zone is None:
-            arrow_start = (min(cx + 70, img_width - right_margin), max(cy - 40, top_margin))
-            bend_point = (arrow_start[0] - 20, cy)
+            arrow_start = (img_width - right_margin + 20, max(cy - 50, top_margin + 20))
+            bend_point = (cx + number_safety_distance, cy)
             return arrow_start, bend_point
         
-        # Calculate bend point for L-shaped arrow
+        # Calculate safe bend point for L-shaped arrow with much larger distances
         arrow_start = best_label_pos
         
         if best_zone['side'] == 'left':
-            bend_point = (cx - 30, cy)  # Horizontal line to avoid number
+            bend_point = (cx - number_safety_distance, cy)  # Safe horizontal distance
         elif best_zone['side'] == 'right':
-            bend_point = (cx + 30, cy)  # Horizontal line to avoid number
+            bend_point = (cx + number_safety_distance, cy)  # Safe horizontal distance
         elif best_zone['side'] == 'top':
-            bend_point = (cx, cy - 30)  # Vertical line to avoid number
+            bend_point = (cx, cy - number_safety_distance)  # Safe vertical distance
         else:  # bottom
-            bend_point = (cx, cy + 30)  # Vertical line to avoid number
+            bend_point = (cx, cy + number_safety_distance)  # Safe vertical distance
         
         return arrow_start, bend_point
     
