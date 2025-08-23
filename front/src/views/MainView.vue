@@ -222,6 +222,7 @@ export default {
   setup() {
     const router = useRouter()
     const selectedFile = ref(null)
+    const uploadedFile = ref(null)
     const isDragging = ref(false)
     const isProcessing = ref(false)
     const images = ref([])
@@ -233,6 +234,8 @@ export default {
     const selectedImage = ref(null)
     const processingTime = ref(0)
     const processingTimer = ref(null)
+    const progressMessage = ref('')
+    const progress = ref(0)
     
     // Serverless specific
     const currentJobId = ref(null)
@@ -620,6 +623,7 @@ export default {
 
     return {
       selectedFile,
+      uploadedFile,
       isDragging,
       isProcessing,
       images,
@@ -630,6 +634,8 @@ export default {
       modalOpen,
       selectedImage,
       processingTime,
+      progressMessage,
+      progress,
       currentJobId,
       jobStatus,
       jobStatusText,
@@ -646,7 +652,8 @@ export default {
       jobHistory,
       formatDate,
       getStatusText,
-      getJobFilename
+      getJobFilename,
+      trackProcessingJob
     }
   }
 }
