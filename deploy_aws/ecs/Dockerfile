@@ -18,15 +18,15 @@ WORKDIR /app
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Copy requirements first for better caching
-COPY requirements.txt .
+COPY deploy_aws/ecs/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Pre-download EasyOCR models to avoid runtime download
 RUN python -c "import easyocr; reader = easyocr.Reader(['ko', 'en'], gpu=False, download_enabled=True); print('Models downloaded successfully')"
 
-# Copy application code from current directory (deploy_aws/ecs/)
+# Copy application code from project root
 COPY app/ ./app/
-COPY processor/ ./processor/
+COPY deploy_aws/ecs/processor/ ./processor/
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1

@@ -1,0 +1,25 @@
+# Application Settings
+APP_NAME=PatentHelper
+APP_VERSION=1.0.0
+DEBUG=True
+
+# Server Configuration
+HOST=0.0.0.0
+PORT=8000
+
+# File Upload Settings
+MAX_UPLOAD_SIZE=104857600  # 100MB in bytes
+ALLOWED_EXTENSIONS=.pdf
+
+# Storage Paths
+UPLOAD_DIR=data/input
+OUTPUT_IMAGE_DIR=data/output/images
+OUTPUT_ANNOTATED_DIR=data/output/annotated
+
+# OCR Settings
+OCR_LANGUAGES=ko,en
+OCR_GPU=False
+
+# Logging
+LOG_LEVEL=INFO
+LOG_FILE=logs/app.log
