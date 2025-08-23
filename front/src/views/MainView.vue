@@ -179,7 +179,7 @@
                     v-if="job.status === 'PROCESSING'"
                     class="status-badge clickable" 
                     :class="job.status"
-                    @click="trackProcessingJob(job)"
+                    @click.stop="trackProcessingJob(job)"
                     title="클릭하여 진행 상황 보기"
                   >
                     {{ getStatusText(job.status) }}
@@ -189,7 +189,14 @@
                   </span>
                 </div>
               </div>
-              <router-link :to="`/job/${job.jobId}`" class="view-button">
+              <button 
+                v-if="job.status === 'PROCESSING'"
+                @click="trackProcessingJob(job)"
+                class="view-button processing-button"
+              >
+                진행 상황
+              </button>
+              <router-link v-else :to="`/job/${job.jobId}`" class="view-button">
                 보기
               </router-link>
             </div>
@@ -565,7 +572,12 @@ export default {
       // Set current job ID
       currentJobId.value = job.jobId
       
-      // Update progress message from job data
+      // Update job status info
+      jobStatus.value = job.status
+      jobMessage.value = job.message || ''
+      jobProgress.value = job.progress || 0
+      
+      // Update progress message
       if (job.message) {
         progressMessage.value = job.message
       }
@@ -575,13 +587,21 @@ export default {
       
       // Show processing status
       isProcessing.value = true
-      processingTime.value = Math.floor((Date.now() - (job.createdAt * 1000)) / 1000)
+      
+      // Calculate elapsed time
+      const startTime = job.createdAt * (job.createdAt < 10000000000 ? 1000 : 1)
+      processingTime.value = Math.floor((Date.now() - startTime) / 1000)
+      
+      // Start timer for elapsed time
+      stopTimer() // Stop any existing timer first
+      processingTimer.value = setInterval(() => {
+        processingTime.value += 1
+      }, 1000)
       
       // Start status check for this job
       startStatusCheck()
-      startTimer()
       
-      // Optionally, you could also load the file info if available
+      // Set file info if available
       if (job.fileName || job.filename) {
         uploadedFile.value = { name: getJobFilename(job) }
       }
@@ -872,10 +892,20 @@ export default {
   border-radius: 6px;
   font-size: 13px;
   transition: background 0.2s;
+  border: none;
+  cursor: pointer;
 }
 
 .view-button:hover {
   background: #5a67d8;
+}
+
+.view-button.processing-button {
+  background: #17a2b8;
+}
+
+.view-button.processing-button:hover {
+  background: #138496;
 }
 
 .header {
