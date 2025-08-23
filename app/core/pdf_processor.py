@@ -47,64 +47,79 @@ class PDFProcessor:
         
         images = []
         
-        # Try a simpler approach - just render the whole page if it looks like a drawing
-        # Skip trying to extract embedded images which is causing issues
         try:
             # Check if this page likely contains a drawing
             if self._is_drawing_page(plumber_page):
-                # Skip first page header area (top 30%) to avoid logos
+                # Find the actual drawing area on the page
+                drawing_area = self._find_drawing_area_precise(plumber_page, page_num)
+                
+                if not drawing_area:
+                    logger.info(f"No clear drawing area found on page {page_num + 1}")
+                    return images
+                
+                x0, y0, x1, y1 = drawing_area
+                
+                # Skip if area is in first page header (top 30%)
                 if page_num == 0:
-                    # First page - check if image is in the header area
                     page_height = plumber_page.height
                     header_threshold = page_height * 0.3
-                    
-                    # Check if the main content is below the header threshold
-                    # by examining where the actual drawing content starts
-                    drawing_area = self._find_drawing_area(plumber_page)
-                    if drawing_area:
-                        x0, y0, x1, y1 = drawing_area
-                        # If the drawing starts in the header area, skip this page
-                        if y0 < header_threshold and y1 < header_threshold:
-                            logger.info(f"Skipping header image on page {page_num + 1}")
-                            return images
+                    if y1 < header_threshold:
+                        logger.info(f"Skipping header image on page {page_num + 1}")
+                        return images
                 
-                # Render the entire page
+                # Render the entire page first
                 scale = 2.0
                 bitmap = page.render(scale=scale)
-                pil_image = bitmap.to_pil()
+                full_image = bitmap.to_pil()
                 
-                # For first page, crop out the top 30% if needed
-                if page_num == 0:
-                    page_height = plumber_page.height
-                    header_threshold = page_height * 0.3
-                    
-                    # Convert PDF coordinates to image pixels
-                    pixels_per_point = pil_image.height / page_height
-                    crop_y = int(header_threshold * pixels_per_point)
-                    
-                    # Check if there's significant content below header
-                    # by checking if the cropped area is not too small
-                    if pil_image.height - crop_y > pil_image.height * 0.4:
-                        # Crop the image to exclude header
-                        pil_image = pil_image.crop((0, crop_y, pil_image.width, pil_image.height))
-                        logger.info(f"Cropped header area from page {page_num + 1}")
+                # Convert PDF coordinates to image pixels
+                page_width = plumber_page.width
+                page_height = plumber_page.height
+                img_width = full_image.width
+                img_height = full_image.height
+                
+                # Calculate scaling factors
+                scale_x = img_width / page_width
+                scale_y = img_height / page_height
+                
+                # Convert drawing area coordinates to pixel coordinates
+                crop_x0 = int(x0 * scale_x)
+                crop_y0 = int(y0 * scale_y)
+                crop_x1 = int(x1 * scale_x)
+                crop_y1 = int(y1 * scale_y)
+                
+                # Add small padding around the drawing (10 pixels)
+                padding = 10
+                crop_x0 = max(0, crop_x0 - padding)
+                crop_y0 = max(0, crop_y0 - padding)
+                crop_x1 = min(img_width, crop_x1 + padding)
+                crop_y1 = min(img_height, crop_y1 + padding)
+                
+                # Crop the image to the drawing area
+                cropped_image = full_image.crop((crop_x0, crop_y0, crop_x1, crop_y1))
+                
+                # Ensure minimum size (at least 100x100 pixels)
+                if cropped_image.width < 100 or cropped_image.height < 100:
+                    logger.warning(f"Cropped area too small on page {page_num + 1}, using full page")
+                    cropped_image = full_image
                 
                 img_data = {
                     'page': page_num,
                     'index': 0,
-                    'pil_image': pil_image,
-                    'width': pil_image.width,
-                    'height': pil_image.height,
+                    'pil_image': cropped_image,
+                    'width': cropped_image.width,
+                    'height': cropped_image.height,
                     'xref': None,
                     'bbox': {
-                        'x0': 0,
-                        'y0': 0,
-                        'x1': plumber_page.width,
-                        'y1': plumber_page.height
-                    }
+                        'x0': x0,
+                        'y0': y0,
+                        'x1': x1,
+                        'y1': y1
+                    },
+                    'page_num': page_num + 1
                 }
                 images.append(img_data)
-                logger.info(f"Extracted drawing from page {page_num + 1}")
+                logger.info(f"Extracted and cropped drawing from page {page_num + 1}: {cropped_image.width}x{cropped_image.height}")
         except Exception as e:
             logger.warning(f"Failed to extract images from page {page_num}: {e}")
             
@@ -163,6 +178,109 @@ class PDFProcessor:
         # Ensure we have a valid area
         if x1 > x0 and y1 > y0:
             return (x0, y0, x1, y1)
+        return None
+    
+    def _find_drawing_area_precise(self, page, page_num: int) -> tuple:
+        """Find the precise drawing area by analyzing all graphical elements"""
+        min_x, min_y = float('inf'), float('inf')
+        max_x, max_y = 0, 0
+        has_graphical_content = False
+        
+        # 1. Check embedded images
+        if hasattr(page, 'images') and page.images:
+            for img in page.images:
+                has_graphical_content = True
+                min_x = min(min_x, img.get('x0', 0))
+                min_y = min(min_y, img.get('y0', 0) if img.get('y0') is not None else img.get('top', 0))
+                max_x = max(max_x, img.get('x1', page.width))
+                max_y = max(max_y, img.get('y1', page.height) if img.get('y1') is not None else img.get('bottom', page.height))
+                logger.info(f"Found embedded image on page {page_num + 1}: ({min_x:.1f}, {min_y:.1f}) to ({max_x:.1f}, {max_y:.1f})")
+        
+        # 2. Check curves (often used in technical drawings)
+        if hasattr(page, 'curves') and page.curves:
+            for curve in page.curves:
+                has_graphical_content = True
+                points = curve.get('pts', [])
+                for point in points:
+                    if isinstance(point, (list, tuple)) and len(point) >= 2:
+                        min_x = min(min_x, point[0])
+                        min_y = min(min_y, point[1])
+                        max_x = max(max_x, point[0])
+                        max_y = max(max_y, point[1])
+        
+        # 3. Check rectangles and lines
+        if hasattr(page, 'rects') and page.rects:
+            for rect in page.rects:
+                # Skip very small rectangles (likely text decorations)
+                width = abs(rect.get('x1', 0) - rect.get('x0', 0))
+                height = abs(rect.get('y1', 0) - rect.get('y0', 0))
+                if width > 20 or height > 20:  # Significant size
+                    has_graphical_content = True
+                    min_x = min(min_x, rect.get('x0', 0))
+                    min_y = min(min_y, rect.get('y0', 0) if rect.get('y0') is not None else rect.get('top', 0))
+                    max_x = max(max_x, rect.get('x1', page.width))
+                    max_y = max(max_y, rect.get('y1', page.height) if rect.get('y1') is not None else rect.get('bottom', page.height))
+        
+        # 4. Check lines
+        if hasattr(page, 'lines') and page.lines:
+            for line in page.lines:
+                # Skip very short lines
+                length = ((line.get('x1', 0) - line.get('x0', 0))**2 + 
+                         (line.get('y1', 0) - line.get('y0', 0))**2)**0.5
+                if length > 20:
+                    has_graphical_content = True
+                    min_x = min(min_x, line.get('x0', 0), line.get('x1', 0))
+                    min_y = min(min_y, line.get('y0', 0) if line.get('y0') is not None else line.get('top', 0), 
+                               line.get('y1', 0) if line.get('y1') is not None else line.get('bottom', 0))
+                    max_x = max(max_x, line.get('x0', page.width), line.get('x1', page.width))
+                    max_y = max(max_y, line.get('y0', page.height) if line.get('y0') is not None else line.get('top', page.height), 
+                               line.get('y1', page.height) if line.get('y1') is not None else line.get('bottom', page.height))
+        
+        # 5. If no graphical content found but page has low text density, use text boundaries
+        if not has_graphical_content:
+            words = page.extract_words() if hasattr(page, 'extract_words') else []
+            text = page.extract_text() or ""
+            
+            # Check if this might be a drawing with numbers/labels
+            if words and len(text) < 500:  # Not too much text
+                # Find boundaries of all text (likely labels on drawing)
+                for word in words:
+                    min_x = min(min_x, word.get('x0', 0))
+                    min_y = min(min_y, word.get('top', 0))
+                    max_x = max(max_x, word.get('x1', page.width))
+                    max_y = max(max_y, word.get('bottom', page.height))
+                has_graphical_content = True
+                logger.info(f"Using text boundaries as drawing area on page {page_num + 1}")
+        
+        # Return the found area or None
+        if has_graphical_content and min_x < float('inf'):
+            # Add margin to ensure we don't cut off parts of the drawing
+            margin = 20
+            x0 = max(0, min_x - margin)
+            y0 = max(0, min_y - margin)
+            x1 = min(page.width, max_x + margin)
+            y1 = min(page.height, max_y + margin)
+            
+            # Ensure minimum size
+            min_width = 100
+            min_height = 100
+            if x1 - x0 < min_width:
+                center_x = (x0 + x1) / 2
+                x0 = max(0, center_x - min_width / 2)
+                x1 = min(page.width, center_x + min_width / 2)
+            if y1 - y0 < min_height:
+                center_y = (y0 + y1) / 2
+                y0 = max(0, center_y - min_height / 2)
+                y1 = min(page.height, center_y + min_height / 2)
+            
+            logger.info(f"Found drawing area on page {page_num + 1}: ({x0:.1f}, {y0:.1f}) to ({x1:.1f}, {y1:.1f})")
+            return (x0, y0, x1, y1)
+        
+        # Fallback to full page if we think there's a drawing but couldn't find boundaries
+        if self._is_drawing_page(page):
+            logger.info(f"Using full page as drawing area on page {page_num + 1} (fallback)")
+            return (0, 0, page.width, page.height)
+        
         return None
     
     def extract_all_images(self) -> List[Dict[str, Any]]:

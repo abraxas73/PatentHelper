@@ -261,7 +261,7 @@ aws logs tail /aws/lambda/patent-helper-upload --follow
 
 - **이슈 리포팅**: GitHub Issues
 - **기술 문의**: [이메일 주소 또는 연락처]
-- **데모**: https://d1k8m3z5xkr8hb.cloudfront.net
+- **데모**: https://patent.sncbears.cloud
 
 ---
 
