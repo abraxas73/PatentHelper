@@ -106,9 +106,20 @@ def process_pdf(job_id, s3_key):
             full_text = pdf_processor.extract_text()
             raw_images = pdf_processor.extract_all_images()
             
-            # Save extracted images
+            # Update with number of pages found
+            update_job_status(job_id, 'PROCESSING',
+                             message=f'Found {len(raw_images)} drawings to extract',
+                             progress=25)
+            
+            # Save extracted images with progress updates
             pdf_name = Path(s3_key).stem
-            extracted_images = image_extractor.extract_and_save_images(raw_images, pdf_name)
+            extracted_images = []
+            for idx, img_data in enumerate(raw_images, 1):
+                update_job_status(job_id, 'PROCESSING',
+                                 message=f'Extracting drawing from page {img_data.get("page_num", idx)}...',
+                                 progress=25 + int((idx / len(raw_images)) * 10))
+                saved_imgs = image_extractor.extract_and_save_images([img_data], pdf_name)
+                extracted_images.extend(saved_imgs)
             
             # Analyze text for number mappings
             update_job_status(job_id, 'PROCESSING',
@@ -123,49 +134,81 @@ def process_pdf(job_id, s3_key):
                 for key, value in sample_items:
                     logger.info(f"Sample mapping: {key} -> {value}")
             
-            # Find numbered regions in images
+            # Find numbered regions in images with detailed progress
             update_job_status(job_id, 'PROCESSING',
                              message='Detecting numbers in drawings...',
                              progress=60)
             
             numbered_regions_by_image = {}
-            for img_info in extracted_images:
+            for idx, img_info in enumerate(extracted_images, 1):
+                drawing_name = Path(img_info['file_path']).stem
+                update_job_status(job_id, 'PROCESSING',
+                                 message=f'Detecting numbers in {drawing_name}...',
+                                 progress=60 + int((idx / len(extracted_images)) * 15))
                 regions = image_extractor.find_numbered_regions(img_info['file_path'])
                 if regions:
                     numbered_regions_by_image[img_info['file_path']] = regions
+                    logger.info(f"Found {len(regions)} numbers in {drawing_name}")
             
-            # Annotate images
+            # Annotate images with detailed progress
             update_job_status(job_id, 'PROCESSING',
-                             message='Adding annotations...',
-                             progress=80)
+                             message='Starting annotation process...',
+                             progress=75)
             
-            annotated_paths = image_annotator.batch_annotate(
-                extracted_images,
-                number_mappings,
-                numbered_regions_by_image
-            )
+            annotated_paths = []
+            for idx, img_info in enumerate(extracted_images, 1):
+                drawing_name = Path(img_info['file_path']).stem
+                update_job_status(job_id, 'PROCESSING',
+                                 message=f'Adding annotations to {drawing_name}...',
+                                 progress=75 + int((idx / len(extracted_images)) * 15))
+                
+                # Annotate single image
+                regions = numbered_regions_by_image.get(img_info['file_path'], {})
+                if regions and number_mappings:
+                    annotated = image_annotator.batch_annotate(
+                        [img_info],
+                        number_mappings,
+                        {img_info['file_path']: regions}
+                    )
+                    annotated_paths.extend(annotated)
+                    logger.info(f"Annotated {drawing_name} with {len(regions)} labels")
             
-            # Upload results to S3
+            # Upload results to S3 with detailed progress
             update_job_status(job_id, 'PROCESSING',
-                             message='Uploading results...',
+                             message='Starting upload to cloud storage...',
                              progress=90)
             
             extracted_s3_keys = []
             annotated_s3_keys = []
             
             # Upload extracted images
+            total_uploads = len(extracted_images) + len(annotated_paths)
+            upload_count = 0
+            
             for img_info in extracted_images:
                 filename = os.path.basename(img_info['file_path'])
                 s3_key = f"results/{job_id}/extracted/{filename}"
+                update_job_status(job_id, 'PROCESSING',
+                                 message=f'Uploading extracted image: {filename}...',
+                                 progress=90 + int((upload_count / total_uploads) * 8))
                 s3.upload_file(img_info['file_path'], BUCKET_NAME, s3_key)
                 extracted_s3_keys.append(s3_key)
+                upload_count += 1
             
             # Upload annotated images
             for path in annotated_paths:
                 filename = os.path.basename(path)
                 s3_key = f"results/{job_id}/annotated/{filename}"
+                update_job_status(job_id, 'PROCESSING',
+                                 message=f'Uploading annotated image: {filename}...',
+                                 progress=90 + int((upload_count / total_uploads) * 8))
                 s3.upload_file(str(path), BUCKET_NAME, s3_key)
                 annotated_s3_keys.append(s3_key)
+                upload_count += 1
+            
+            update_job_status(job_id, 'PROCESSING',
+                             message='Finalizing results...',
+                             progress=98)
             
             # Calculate processing time
             processing_time = time.time() - start_time
