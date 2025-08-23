@@ -8,7 +8,7 @@
     />
     
     <div class="header">
-      <button @click="goBack" class="back-button">← 목록으로</button>
+      <button @click="goBack" class="back-button">← 메인</button>
       <h1>작업 결과 - {{ jobId }}</h1>
     </div>
 
@@ -35,11 +35,11 @@
           </div>
           <div class="status-item">
             <span class="label">파일명:</span>
-            <span>{{ jobData.fileName }}</span>
+            <span>{{ getJobFilename(jobData) }}</span>
           </div>
           <div class="status-item">
             <span class="label">생성 시간:</span>
-            <span>{{ formatDate(jobData.createdAt) }}</span>
+            <span>{{ formatDate(jobData.createdAt || jobData.created_at) }}</span>
           </div>
           <div v-if="jobData.completedAt" class="status-item">
             <span class="label">완료 시간:</span>
@@ -225,6 +225,28 @@ const openModal = (image) => {
 const closeModal = () => {
   modalOpen.value = false
   selectedImage.value = null
+}
+
+const getJobFilename = (job) => {
+  if (!job) return '파일명 없음'
+  
+  // Try different possible field names for filename
+  if (job.fileName) return job.fileName
+  if (job.filename) return job.filename
+  if (job.originalFileName) return job.originalFileName
+  if (job.original_filename) return job.original_filename
+  if (job.file_name) return job.file_name
+  
+  // Extract from s3Key if available
+  if (job.s3Key) {
+    const filename = job.s3Key.split('/').pop()
+    if (filename && filename !== 'undefined' && filename.length > 0) return filename
+  }
+  
+  // Generate fallback name from jobId
+  if (job.jobId) return `${job.jobId.substring(0, 8)}.pdf`
+  
+  return '파일명 없음'
 }
 
 const goBack = () => {
