@@ -17,12 +17,23 @@ RUN pip install --no-cache-dir \
     torch==2.3.0 torchvision==0.18.0 --index-url https://download.pytorch.org/whl/cpu \
     --target "${LAMBDA_TASK_ROOT}"
 
-# Then install other packages
+# Install dependencies for easyocr without reinstalling torch
 RUN pip install --no-cache-dir \
     pypdfium2==4.25.0 \
     pillow==9.5.0 \
     numpy==1.26.0 \
     opencv-python-headless==4.10.0.84 \
+    scipy \
+    scikit-image \
+    python-bidi \
+    PyYAML \
+    Shapely \
+    pyclipper \
+    ninja \
+    --target "${LAMBDA_TASK_ROOT}"
+
+# Install easyocr without dependencies to avoid reinstalling torch
+RUN pip install --no-cache-dir --no-deps \
     easyocr==1.7.0 \
     --target "${LAMBDA_TASK_ROOT}"
 

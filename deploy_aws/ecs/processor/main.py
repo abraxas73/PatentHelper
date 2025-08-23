@@ -43,34 +43,17 @@ def update_job_status(job_id, status, **kwargs):
     for key, value in kwargs.items():
         # Handle different data types and ensure proper encoding
         if isinstance(value, dict):
-            # For dictionaries (like numberMappings), serialize to JSON string
+            # For dictionaries (like numberMappings), always serialize to JSON string
             # This avoids encoding issues with Korean text
-            try:
-                import json
-                value = json.dumps(value, ensure_ascii=False)
-                key = key + "Json"  # Rename key to indicate it's JSON
-            except Exception as e:
-                logger.warning(f"Failed to serialize {key} to JSON: {e}")
-                # Fallback: convert to ASCII-safe representation
-                safe_dict = {}
-                for k, v in value.items():
-                    safe_k = str(k).encode('ascii', 'ignore').decode('ascii')
-                    safe_v = str(v).encode('ascii', 'ignore').decode('ascii')
-                    safe_dict[safe_k] = safe_v
-                value = json.dumps(safe_dict)
-                key = key + "Json"
+            import json
+            value = json.dumps(value, ensure_ascii=False)
+            key = key + "Json"  # Rename key to indicate it's JSON
         elif isinstance(value, list):
             # For lists, ensure all string items are properly encoded
             value = [str(item) if not isinstance(item, str) else item for item in value]
         elif isinstance(value, str):
-            # Check if string contains non-ASCII characters
-            try:
-                value.encode('ascii')
-            except UnicodeEncodeError:
-                # If it contains non-ASCII (like Korean), store as base64
-                import base64
-                encoded = base64.b64encode(value.encode('utf-8')).decode('ascii')
-                value = f"base64:{encoded}"
+            # Don't do anything special for strings - let boto3 handle it
+            pass
         
         update_expr += f", {key} = :{key}"
         expr_attr_values[f":{key}"] = value

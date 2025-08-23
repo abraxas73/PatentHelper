@@ -31,7 +31,9 @@ cd lambda-container
 cp -r ../ecs/app ./app
 
 # Build for x86_64 platform (Lambda requires this)
-docker buildx build --platform linux/amd64 -t $ECR_REPO .
+# Use regular docker build with DOCKER_DEFAULT_PLATFORM
+export DOCKER_DEFAULT_PLATFORM=linux/amd64
+docker build -t $ECR_REPO .
 docker tag $ECR_REPO:latest $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$ECR_REPO:latest
 docker push $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$ECR_REPO:latest
 

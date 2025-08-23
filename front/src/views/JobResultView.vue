@@ -191,7 +191,7 @@ const loadJobResult = async () => {
   error.value = null
   
   try {
-    const response = await axios.get(`${API_BASE_URL}/status/${jobId.value}`)
+    const response = await axios.get(`${API_BASE_URL}/result/${jobId.value}`)
     jobData.value = response.data
     
     // 처리 중인 경우 폴링 시작
@@ -213,7 +213,7 @@ const startPolling = () => {
   
   pollingInterval.value = setInterval(async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/status/${jobId.value}`)
+      const response = await axios.get(`${API_BASE_URL}/result/${jobId.value}`)
       jobData.value = response.data
       
       if (jobData.value.status === 'COMPLETED' || jobData.value.status === 'FAILED') {
