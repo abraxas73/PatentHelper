@@ -134,8 +134,11 @@ class ImageExtractor:
             if img is None:
                 return []
             
-            # OCR to detect all numbers
-            results = self.reader.readtext(image_path)
+            # Preprocess image for better OCR on first page
+            preprocessed = self.preprocess_image_for_ocr(image_path)
+            
+            # OCR to detect all numbers - use preprocessed image for better results
+            results = self.reader.readtext(preprocessed)
             
             numbered_regions = []
             
@@ -143,7 +146,8 @@ class ImageExtractor:
             number_pattern = r'^\d{1,3}$'
             
             for (bbox, text, prob) in results:
-                if prob < 0.5:
+                # Lower threshold for better detection on first page
+                if prob < 0.3:
                     continue
                 
                 text = text.strip()

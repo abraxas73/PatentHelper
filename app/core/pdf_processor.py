@@ -139,8 +139,10 @@ class PDFProcessor:
         """Check if page likely contains a drawing"""
         text = page.extract_text() or ""
         
-        # Check for drawing indicators
-        drawing_keywords = ['도면', '도 ', 'Fig', 'Figure', '그림', 'Drawing', '【도', '[도']
+        # Check for drawing indicators - expanded keywords for better first page detection
+        drawing_keywords = ['도면', '도 ', 'Fig', 'Figure', '그림', 'Drawing', '【도', '[도', 
+                            '도1', '도2', '도3', '도4', '도5', '도6', '도7', '도8', '도9',
+                            '제1도', '제2도', '제3도', '제4도', '제5도']
         has_drawing_keyword = any(keyword in text for keyword in drawing_keywords)
         
         # Check if page has images embedded
@@ -347,7 +349,8 @@ class PDFProcessor:
         if has_graphical_content and min_x < float('inf'):
             # Add MUCH LARGER margin for top/bottom to prevent cutting
             h_margin = 30  # Horizontal margin
-            v_margin = 80  # Vertical margin (much larger to prevent top/bottom cutting)
+            # Increase vertical margin by 5% of page height for better coverage
+            v_margin = int(page.height * 0.05) + 80  # Base 80px + 5% of page height
             
             x0 = max(0, min_x - h_margin)
             y0 = max(0, min_y - v_margin)  # Much more margin at top
