@@ -175,9 +175,12 @@ class ImageAnnotator:
             # Draw label box in expanded area
             self._draw_label_box(draw, arrow_start, label, working_font)
         
+        # Post-process: Re-crop to include only necessary area with labels
+        final_img = self._post_process_crop(expanded_img, label_positions, original_width, original_height, side_expansion, vertical_expansion)
+        
         # Save annotated image
         output_path = self.output_dir / output_filename
-        expanded_img.save(str(output_path))
+        final_img.save(str(output_path))
         
         return output_path
     
@@ -424,6 +427,64 @@ class ImageAnnotator:
         
         # Draw arrowhead
         draw.polygon([end, arrow_point1, arrow_point2], fill='red')
+    
+    def _post_process_crop(self, img: Image, label_positions: Dict, original_width: int, original_height: int, 
+                           side_expansion: int, vertical_expansion: int) -> Image:
+        """
+        Post-process to crop the image to include only necessary area with all labels
+        """
+        # Find the actual bounds of all content (original drawing + labels)
+        min_x, min_y = float('inf'), float('inf')
+        max_x, max_y = 0, 0
+        
+        # Original drawing bounds (in expanded coordinates)
+        min_x = min(min_x, side_expansion)  # Left edge of original drawing
+        min_y = min(min_y, vertical_expansion)  # Top edge of original drawing
+        max_x = max(max_x, side_expansion + original_width)  # Right edge of original drawing
+        max_y = max(max_y, vertical_expansion + original_height)  # Bottom edge of original drawing
+        
+        # Include all label positions
+        for side, positions in label_positions.items():
+            for x, y in positions:
+                # Estimate label box size (conservative estimate)
+                label_width = 200  # Estimated max label width
+                label_height = 30  # Estimated label height
+                
+                if side == 'left':
+                    min_x = min(min_x, x - 10)
+                    max_x = max(max_x, x + label_width)
+                else:  # right
+                    min_x = min(min_x, x - label_width)
+                    max_x = max(max_x, x + 10)
+                
+                min_y = min(min_y, y - label_height // 2)
+                max_y = max(max_y, y + label_height // 2)
+        
+        # Add small padding
+        padding = 20
+        crop_x0 = max(0, int(min_x - padding))
+        crop_y0 = max(0, int(min_y - padding))
+        crop_x1 = min(img.width, int(max_x + padding))
+        crop_y1 = min(img.height, int(max_y + padding))
+        
+        # Ensure minimum size
+        min_width = 400
+        min_height = 400
+        if crop_x1 - crop_x0 < min_width:
+            center = (crop_x0 + crop_x1) // 2
+            crop_x0 = max(0, center - min_width // 2)
+            crop_x1 = min(img.width, center + min_width // 2)
+        if crop_y1 - crop_y0 < min_height:
+            center = (crop_y0 + crop_y1) // 2
+            crop_y0 = max(0, center - min_height // 2)
+            crop_y1 = min(img.height, center + min_height // 2)
+        
+        # Crop the image
+        if crop_x0 < crop_x1 and crop_y0 < crop_y1:
+            return img.crop((crop_x0, crop_y0, crop_x1, crop_y1))
+        else:
+            # If cropping fails, return original
+            return img
     
     def _draw_label_box(self, draw: ImageDraw, position: Tuple[int, int], text: str, font: Optional[ImageFont.ImageFont]):
         x, y = position

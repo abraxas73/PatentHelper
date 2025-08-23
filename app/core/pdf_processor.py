@@ -217,6 +217,35 @@ class PDFProcessor:
         max_x, max_y = 0, 0
         has_graphical_content = False
         
+        # First, check if there's a dense text area at the top (likely header/title)
+        words = page.extract_words() if hasattr(page, 'extract_words') else []
+        if words and page_num == 0:
+            # Group words by vertical position to find text blocks
+            text_lines = {}
+            for word in words:
+                y = round(word.get('top', 0) / 10) * 10  # Group by 10px intervals
+                if y not in text_lines:
+                    text_lines[y] = []
+                text_lines[y].append(word)
+            
+            # Find continuous text block at top
+            sorted_lines = sorted(text_lines.keys())
+            if sorted_lines:
+                # Check if top area has dense text (likely header)
+                top_text_bottom = 0
+                for y in sorted_lines:
+                    if y < page.height * 0.4:  # Only check top 40% of page
+                        line_text = ' '.join([w.get('text', '') for w in text_lines[y]])
+                        # If line has substantial text (not just numbers)
+                        if len(line_text) > 20 and not all(c.isdigit() or c.isspace() for c in line_text):
+                            top_text_bottom = max(top_text_bottom, 
+                                                 max(w.get('bottom', 0) for w in text_lines[y]))
+                
+                # Start drawing area below text header
+                if top_text_bottom > 0:
+                    min_y = top_text_bottom + 20
+                    logger.info(f"Excluding text header area above y={top_text_bottom} on page {page_num + 1}")
+        
         # 1. Check embedded images
         if hasattr(page, 'images') and page.images:
             for img in page.images:
@@ -295,7 +324,8 @@ class PDFProcessor:
                 short_words = sum(1 for w in words if len(w.get('text', '')) <= 5)
                 
                 # If mostly numbers/short labels and not too much text, likely a drawing
-                if (numeric_words > len(words) * 0.3 or short_words > len(words) * 0.5) and len(text) < 1000:
+                # But also exclude if we already found a text header area
+                if (numeric_words > len(words) * 0.3 or short_words > len(words) * 0.5) and len(text) < 1000 and min_y == float('inf'):
                     # Find boundaries of drawing labels, excluding obvious text paragraphs
                     drawing_words = []
                     for word in words:
@@ -315,14 +345,14 @@ class PDFProcessor:
         
         # Return the found area or None
         if has_graphical_content and min_x < float('inf'):
-            # Add LARGER margin for top/bottom to prevent cutting
-            h_margin = 20  # Horizontal margin
-            v_margin = 40  # Vertical margin (larger to prevent top/bottom cutting)
+            # Add MUCH LARGER margin for top/bottom to prevent cutting
+            h_margin = 30  # Horizontal margin
+            v_margin = 80  # Vertical margin (much larger to prevent top/bottom cutting)
             
             x0 = max(0, min_x - h_margin)
-            y0 = max(0, min_y - v_margin)  # More margin at top
+            y0 = max(0, min_y - v_margin)  # Much more margin at top
             x1 = min(page.width, max_x + h_margin)
-            y1 = min(page.height, max_y + v_margin)  # More margin at bottom
+            y1 = min(page.height, max_y + v_margin)  # Much more margin at bottom
             
             # Ensure minimum size
             min_width = 100
