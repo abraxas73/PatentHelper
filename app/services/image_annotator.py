@@ -93,8 +93,10 @@ class ImageAnnotator:
         original_img = Image.open(image_path)
         original_width, original_height = original_img.size
         
-        # Define expansion width for side margins
-        side_expansion = 250  # 250px on each side for labels
+        # Calculate appropriate expansion based on original image width
+        # Use 15-20% of original width, with min 150px and max 200px for practical labeling
+        expansion_ratio = 0.18  # 18% of original width
+        side_expansion = max(150, min(200, int(original_width * expansion_ratio)))
         
         # Create expanded canvas
         expanded_width = original_width + (side_expansion * 2)
@@ -130,10 +132,16 @@ class ImageAnnotator:
             }
             
             # Calculate optimal label position in expanded areas
-            arrow_end = (int(adjusted_center['x']), int(adjusted_center['y']))
             arrow_start, bend_point = self._calculate_optimal_label_position_expanded(
                 expanded_img, adjusted_center, bbox, side_expansion
             )
+            
+            # Calculate safe arrow end point (slightly away from number center to avoid overlap)
+            safety_offset = 25  # Distance from number center
+            if bend_point[0] < adjusted_center['x']:  # Arrow coming from left
+                arrow_end = (int(adjusted_center['x'] - safety_offset), int(adjusted_center['y']))
+            else:  # Arrow coming from right
+                arrow_end = (int(adjusted_center['x'] + safety_offset), int(adjusted_center['y']))
             
             # Draw bent arrow (L-shaped) to avoid covering the number
             self._draw_bent_arrow(draw, arrow_start, bend_point, arrow_end)
@@ -280,13 +288,13 @@ class ImageAnnotator:
             zone = left_label_area
             label_x = zone['x_range'][0] + 30  # Inside left expansion
             label_y = max(zone['y_range'][0], min(zone['y_range'][1], cy))
-            bend_point = (original_left - 30, cy)  # Just outside original image
+            bend_point = (original_left - 50, cy)  # Further from original image to avoid numbers
         else:
             # Use right expansion area  
             zone = right_label_area
             label_x = zone['x_range'][1] - 30  # Inside right expansion
             label_y = max(zone['y_range'][0], min(zone['y_range'][1], cy))
-            bend_point = (original_right + 30, cy)  # Just outside original image
+            bend_point = (original_right + 50, cy)  # Further from original image to avoid numbers
         
         arrow_start = (label_x, label_y)
         return arrow_start, bend_point
