@@ -38,12 +38,12 @@
             <span>{{ getJobFilename(jobData) }}</span>
           </div>
           <div class="status-item">
-            <span class="label">생성 시간:</span>
+            <span class="label">요청 시간:</span>
             <span>{{ formatDate(jobData.createdAt || jobData.created_at) }}</span>
           </div>
-          <div v-if="jobData.completedAt" class="status-item">
+          <div v-if="jobData.completedAt || jobData.completed_at" class="status-item">
             <span class="label">완료 시간:</span>
-            <span>{{ formatDate(jobData.completedAt) }}</span>
+            <span>{{ formatDate(jobData.completedAt || jobData.completed_at) }}</span>
           </div>
           <div v-if="jobData.processingTime" class="status-item">
             <span class="label">처리 시간:</span>
@@ -260,6 +260,10 @@ const loadJobResult = async () => {
   try {
     const response = await axios.get(`${API_BASE_URL}/result/${jobId.value}`)
     jobData.value = response.data
+    
+    // Debug log for checking field names
+    console.log('Job data fields:', Object.keys(jobData.value))
+    console.log('Job data:', jobData.value)
     
     // 처리 중인 경우 폴링 시작
     if (jobData.value.status === 'PROCESSING' || jobData.value.status === 'PENDING') {
