@@ -1,5 +1,12 @@
 <template>
   <div class="job-result-container">
+    <!-- Image Modal -->
+    <ImageModal 
+      :isOpen="modalOpen"
+      :image="selectedImage"
+      @close="closeModal"
+    />
+    
     <div class="header">
       <button @click="goBack" class="back-button">← 목록으로</button>
       <h1>작업 결과 - {{ jobId }}</h1>
@@ -68,7 +75,7 @@
               <img 
                 :src="getImageUrl(image)" 
                 :alt="`도면 ${index + 1}`" 
-                @click="openModal(getImageUrl(image))"
+                @click="openModal(image)"
                 style="cursor: pointer;"
               />
             </div>
@@ -90,7 +97,7 @@
                 <img 
                   :src="getImageUrl(image)" 
                   :alt="`어노테이션 ${index + 1}`" 
-                  @click="openModal(getImageUrl(image))"
+                  @click="openModal(image)"
                   style="cursor: pointer;"
                 />
               </div>
@@ -118,21 +125,6 @@
       </div>
     </div>
 
-    <!-- 이미지 모달 -->
-    <div v-if="modalImage" class="modal" @click="closeModal">
-      <div class="modal-content" @click.stop>
-        <span class="close" @click="closeModal">&times;</span>
-        <img 
-          :src="modalImage" 
-          alt="확대 이미지" 
-          @error="handleImageError"
-          @load="handleImageLoad"
-        />
-        <div v-if="imageError" class="error-message">
-          이미지를 불러올 수 없습니다: {{ modalImage }}
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -140,6 +132,7 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
+import ImageModal from '../ImageModal.vue'
 import config from '../config'
 const API_BASE_URL = config.API_URL
 
@@ -150,9 +143,9 @@ const jobId = computed(() => route.params.jobId)
 const jobData = ref(null)
 const loading = ref(true)
 const error = ref(null)
-const modalImage = ref(null)
+const modalOpen = ref(false)
+const selectedImage = ref(null)
 const pollingInterval = ref(null)
-const imageError = ref(false)
 
 const getStatusClass = (status) => {
   const statusClasses = {
@@ -202,25 +195,23 @@ const getImageName = (image) => {
   return image.split('/').pop()
 }
 
-const openModal = (imageUrl) => {
-  console.log('Opening modal with image URL:', imageUrl)
-  modalImage.value = imageUrl
-  imageError.value = false
+const openModal = (image) => {
+  console.log('Opening modal with image:', image)
+  // Convert job result image format to ImageModal compatible format
+  const imageObj = {
+    filename: getImageName(image),
+    url: getImageUrl(image),
+    width: 'Unknown',
+    height: 'Unknown',
+    figure_number: getImageName(image).replace('_annotated', '').replace('.png', '')
+  }
+  selectedImage.value = imageObj
+  modalOpen.value = true
 }
 
 const closeModal = () => {
-  modalImage.value = null
-  imageError.value = false
-}
-
-const handleImageError = (event) => {
-  console.error('Image failed to load:', event.target.src)
-  imageError.value = true
-}
-
-const handleImageLoad = (event) => {
-  console.log('Image loaded successfully:', event.target.src)
-  imageError.value = false
+  modalOpen.value = false
+  selectedImage.value = null
 }
 
 const goBack = () => {
@@ -544,52 +535,4 @@ onUnmounted(() => {
   flex: 1;
 }
 
-.modal {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: fixed;
-  z-index: 1000;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0,0,0,0.9);
-}
-
-.modal-content {
-  position: relative;
-  max-width: 90%;
-  max-height: 90%;
-}
-
-.modal-content img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.close {
-  position: absolute;
-  top: -40px;
-  right: 0;
-  color: white;
-  font-size: 35px;
-  font-weight: bold;
-  cursor: pointer;
-}
-
-.close:hover {
-  color: #ccc;
-}
-
-.error-message {
-  color: #dc3545;
-  background: rgba(255, 255, 255, 0.9);
-  padding: 10px;
-  border-radius: 5px;
-  margin-top: 10px;
-  font-size: 14px;
-  word-break: break-all;
-}
 </style>

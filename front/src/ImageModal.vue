@@ -61,8 +61,16 @@ export default {
     const isDownloading = ref(false)
     
     const imageUrl = computed(() => {
-      if (!props.image?.filename) return ''
-      return `/api/v1/images/${props.image.filename}`
+      if (!props.image) return ''
+      // If image has url property (from job results), use it directly
+      if (props.image.url) {
+        return props.image.url
+      }
+      // Otherwise fallback to filename based URL (from main page)
+      if (props.image.filename) {
+        return `/api/v1/images/${props.image.filename}`
+      }
+      return ''
     })
     
     const close = () => {
@@ -76,46 +84,81 @@ export default {
     }
     
     const download = async () => {
-      if (!props.image?.filename) return
+      if (!props.image) return
       
       isDownloading.value = true
       
       try {
         let downloadUrl = ''
-        let filename = props.image.filename.split('.')[0]
+        let filename = ''
+        
+        // Determine filename
+        if (props.image.filename) {
+          filename = props.image.filename.split('.')[0]
+        } else if (props.image.figure_number) {
+          filename = props.image.figure_number
+        } else {
+          filename = 'image'
+        }
         
         if (selectedFormat.value === 'png') {
           // Direct download for PNG
           downloadUrl = imageUrl.value
           filename += '.png'
-        } else {
-          // Request conversion from backend
-          const response = await axios.post('/api/v1/convert', {
-            filename: props.image.filename,
-            format: selectedFormat.value
-          }, {
-            responseType: 'blob'
-          })
           
-          // Create blob URL for download
-          const blob = new Blob([response.data], {
-            type: response.headers['content-type']
-          })
-          downloadUrl = URL.createObjectURL(blob)
-          filename += `.${selectedFormat.value}`
-        }
-        
-        // Trigger download
-        const link = document.createElement('a')
-        link.href = downloadUrl
-        link.download = filename
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        
-        // Clean up blob URL if created
-        if (selectedFormat.value !== 'png') {
-          URL.revokeObjectURL(downloadUrl)
+          // For S3 presigned URLs, download directly
+          const link = document.createElement('a')
+          link.href = downloadUrl
+          link.download = filename
+          // Add target="_blank" for cross-origin URLs
+          if (downloadUrl.includes('amazonaws.com')) {
+            link.target = '_blank'
+          }
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+        } else {
+          // For format conversion, try to use backend if available
+          try {
+            const response = await axios.post('/api/v1/convert', {
+              filename: props.image.filename || filename,
+              format: selectedFormat.value
+            }, {
+              responseType: 'blob'
+            })
+            
+            // Create blob URL for download
+            const blob = new Blob([response.data], {
+              type: response.headers['content-type']
+            })
+            downloadUrl = URL.createObjectURL(blob)
+            filename += `.${selectedFormat.value}`
+            
+            // Trigger download
+            const link = document.createElement('a')
+            link.href = downloadUrl
+            link.download = filename
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            
+            // Clean up blob URL
+            URL.revokeObjectURL(downloadUrl)
+          } catch (conversionError) {
+            // If conversion fails, fallback to direct download with warning
+            console.warn('Format conversion not available, downloading as PNG:', conversionError)
+            alert('형식 변환이 지원되지 않습니다. PNG 형식으로 다운로드됩니다.')
+            
+            const link = document.createElement('a')
+            link.href = imageUrl.value
+            link.download = filename + '.png'
+            if (imageUrl.value.includes('amazonaws.com')) {
+              link.target = '_blank'
+            }
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+          }
         }
         
       } catch (error) {
