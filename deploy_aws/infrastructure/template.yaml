@@ -218,6 +218,23 @@ Resources:
         - DynamoDBReadPolicy:
             TableName: !Ref JobTable
 
+  HistoryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub patent-helper-history-${Environment}
+      CodeUri: ../lambda/history/
+      Handler: handler.lambda_handler
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /history
+            Method: GET
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref JobTable
+
   # ECS Cluster for OCR Processing
   ECSCluster:
     Type: AWS::ECS::Cluster
@@ -402,6 +419,10 @@ Outputs:
   CloudFrontUrl:
     Description: CloudFront Distribution URL
     Value: !GetAtt CloudFrontDistribution.DomainName
+  
+  CloudFrontDistributionId:
+    Description: CloudFront Distribution ID
+    Value: !Ref CloudFrontDistribution
   
   FrontendBucket:
     Description: Frontend S3 Bucket

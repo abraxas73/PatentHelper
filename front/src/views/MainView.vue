@@ -422,8 +422,34 @@ export default {
       }
     }
 
-    const loadHistory = () => {
-      jobHistory.value = JSON.parse(localStorage.getItem('jobHistory') || '[]')
+    const loadHistory = async () => {
+      try {
+        // Load from localStorage first (for backward compatibility)
+        const localHistory = JSON.parse(localStorage.getItem('jobHistory') || '[]')
+        
+        // Try to load from server
+        const response = await axios.get(`${config.API_URL}/history?limit=50`)
+        if (response.data && response.data.history) {
+          // Merge server history with local history (remove duplicates)
+          const serverHistory = response.data.history
+          const mergedHistory = [...serverHistory]
+          
+          // Add local items that don't exist on server
+          localHistory.forEach(localJob => {
+            if (!mergedHistory.find(j => j.jobId === localJob.jobId)) {
+              mergedHistory.push(localJob)
+            }
+          })
+          
+          jobHistory.value = mergedHistory.slice(0, 50) // Keep only latest 50
+        } else {
+          jobHistory.value = localHistory
+        }
+      } catch (error) {
+        console.error('Failed to load history from server:', error)
+        // Fallback to localStorage
+        jobHistory.value = JSON.parse(localStorage.getItem('jobHistory') || '[]')
+      }
     }
 
     const formatDate = (timestamp) => {
@@ -563,23 +589,29 @@ export default {
 }
 
 /* History Button */
+.header {
+  position: relative;
+}
+
 .history-button {
   position: absolute;
   right: 20px;
   top: 20px;
   padding: 10px 20px;
-  background: #667eea;
+  background: rgba(255, 255, 255, 0.2);
   color: white;
-  border: none;
+  border: 2px solid white;
   border-radius: 8px;
   cursor: pointer;
   font-size: 14px;
   font-weight: 600;
-  transition: background 0.2s;
+  transition: all 0.2s;
+  backdrop-filter: blur(10px);
 }
 
 .history-button:hover {
-  background: #5a67d8;
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
 }
 
 /* Result Link */
