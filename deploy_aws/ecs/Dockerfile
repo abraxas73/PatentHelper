@@ -19,15 +19,10 @@ RUN apt-get update && apt-get install -y \
     libwebp-dev \
     # Unicode fonts (Noto Sans CJK, DejaVu Sans, Liberation fonts)
     fonts-noto-cjk \
-    fonts-noto-cjk-extra \
     fonts-dejavu-core \
-    fonts-dejavu-extra \
     fonts-liberation \
-    fonts-liberation2 \
     # Korean fonts
     fonts-nanum \
-    fonts-nanum-coding \
-    fonts-nanum-extra \
     fonts-unfonts-core \
     # Build tools
     gcc \
