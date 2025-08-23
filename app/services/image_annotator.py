@@ -115,23 +115,26 @@ class ImageAnnotator:
                         # Fallback calculation
                         max_label_width = max(max_label_width, len(label) * 10)
         
-        # Calculate optimized expansion - just enough for labels
-        arrow_length = 30  # Short arrow length
-        padding = 15  # Edge padding
-        side_expansion = max_label_width + arrow_length + padding  # Optimized expansion
+        # Calculate optimized expansion - different for left and right
+        arrow_length = 15  # Extremely short arrow length for minimal spacing
+        padding = 5  # Minimal edge padding
+        # Left side - reduced by 10% compared to before
+        left_expansion = int((max_label_width + arrow_length + padding) * 0.9)  # 10% reduction
+        # Right side needs much more space (10% of original width extra) to prevent label cutoff
+        right_expansion = max_label_width + arrow_length + padding + int(original_width * 0.10)
         
         # Calculate vertical expansion needed for labels that go up/down
         label_height = 30  # Approximate label box height
         max_vertical_offset = 100  # Maximum distance labels can be shifted vertically
         vertical_expansion = max_vertical_offset + label_height  # Space for shifted labels
         
-        # Create expanded canvas with both horizontal and vertical expansion
-        expanded_width = original_width + (side_expansion * 2)
+        # Create expanded canvas with asymmetric horizontal expansion
+        expanded_width = original_width + left_expansion + right_expansion
         expanded_height = original_height + (vertical_expansion * 2)  # Add top and bottom expansion
         expanded_img = Image.new('RGB', (expanded_width, expanded_height), 'white')
         
-        # Paste original image in the center (accounting for vertical expansion too)
-        expanded_img.paste(original_img, (side_expansion, vertical_expansion))
+        # Paste original image (offset by left expansion)
+        expanded_img.paste(original_img, (left_expansion, vertical_expansion))
         
         # Create draw object for expanded image
         draw = ImageDraw.Draw(expanded_img)
@@ -151,15 +154,15 @@ class ImageAnnotator:
             bbox = region['bbox']
             center = region['center']
             
-            # Adjust center coordinates for expanded image (add both horizontal and vertical offsets)
+            # Adjust center coordinates for expanded image (add left expansion and vertical offsets)
             adjusted_center = {
-                'x': center['x'] + side_expansion,
+                'x': center['x'] + left_expansion,
                 'y': center['y'] + vertical_expansion  # Also adjust for vertical expansion
             }
             
             # Calculate optimal label position in expanded areas with overlap avoidance
             arrow_start, bend_point = self._calculate_optimal_label_position_expanded(
-                expanded_img, adjusted_center, bbox, side_expansion, label_positions, working_font
+                expanded_img, adjusted_center, bbox, left_expansion, right_expansion, label_positions, working_font
             )
             
             # Calculate safe arrow end point (slightly away from number center to avoid overlap)
@@ -176,7 +179,10 @@ class ImageAnnotator:
             self._draw_label_box(draw, arrow_start, label, working_font)
         
         # Post-process: Re-crop to include only necessary area with labels
-        final_img = self._post_process_crop(expanded_img, label_positions, original_width, original_height, side_expansion, vertical_expansion)
+        # Also apply top crop based on highest label position
+        final_img = self._post_process_crop_with_top_adjustment(
+            expanded_img, label_positions, numbered_regions, original_width, original_height, 
+            left_expansion, right_expansion, vertical_expansion)
         
         # Save annotated image
         output_path = self.output_dir / output_filename
@@ -284,7 +290,7 @@ class ImageAnnotator:
         return arrow_start, bend_point
     
     def _calculate_optimal_label_position_expanded(self, expanded_img: Image, center: Dict, bbox: Dict, 
-                                                   side_expansion: int, label_positions: Dict, font) -> Tuple[Tuple[int, int], Tuple[int, int]]:
+                                                   left_expansion: int, right_expansion: int, label_positions: Dict, font) -> Tuple[Tuple[int, int], Tuple[int, int]]:
         """
         Calculate optimal label position in expanded side areas with overlap avoidance
         Returns: (arrow_start, bend_point) positions
@@ -293,8 +299,8 @@ class ImageAnnotator:
         cx, cy = int(center['x']), int(center['y'])
         
         # Original image boundaries (center area to avoid)
-        original_left = side_expansion
-        original_right = img_width - side_expansion
+        original_left = left_expansion
+        original_right = img_width - right_expansion
         
         # Choose the closer side for the label
         distance_to_left = abs(cx - original_left)
@@ -317,20 +323,20 @@ class ImageAnnotator:
                 pass
         
         if distance_to_left <= distance_to_right:
-            # Use left expansion area
+            # Use left expansion area with minimal spacing
             side = 'left'
-            label_x = 10  # Close to left edge with padding
+            label_x = 3  # Extremely close to left edge
             base_y = cy
-            # Short arrow - just enough to connect to label
-            bend_point = (original_left - 10, cy)  # Very close to image edge
+            # Ultra-short arrow - minimize space even more
+            bend_point = (original_left - 3, cy)  # Minimal gap from image edge
         else:
-            # Use right expansion area  
+            # Use right expansion area with proper spacing to avoid cutoff
             side = 'right'
-            # Position label so it won't be cut off - account for label width
-            label_x = img_width - label_width - 15  # Leave room for the full label
+            # Ensure label has enough room - account for expanded right area
+            label_x = img_width - label_width - 10  # Leave room for the full label
             base_y = cy
-            # Short arrow - just enough to connect to label
-            bend_point = (original_right + 10, cy)  # Very close to image edge
+            # Short arrow
+            bend_point = (original_right + 5, cy)  # Close to image edge
         
         # Check for overlaps with existing labels on the same side
         label_height = 25  # Approximate label height
@@ -428,19 +434,34 @@ class ImageAnnotator:
         # Draw arrowhead
         draw.polygon([end, arrow_point1, arrow_point2], fill='red')
     
-    def _post_process_crop(self, img: Image, label_positions: Dict, original_width: int, original_height: int, 
-                           side_expansion: int, vertical_expansion: int) -> Image:
+    def _post_process_crop_with_top_adjustment(self, img: Image, label_positions: Dict, numbered_regions: List[Dict],
+                                               original_width: int, original_height: int, 
+                                               left_expansion: int, right_expansion: int, vertical_expansion: int) -> Image:
         """
-        Post-process to crop the image to include only necessary area with all labels
+        Post-process to crop the image with smart top adjustment based on label positions
         """
+        # Find the topmost label position to determine where to crop
+        topmost_label_y = float('inf')
+        for side, positions in label_positions.items():
+            for x, y in positions:
+                topmost_label_y = min(topmost_label_y, y)
+        
         # Find the actual bounds of all content (original drawing + labels)
         min_x, min_y = float('inf'), float('inf')
         max_x, max_y = 0, 0
         
         # Original drawing bounds (in expanded coordinates)
-        min_x = min(min_x, side_expansion)  # Left edge of original drawing
-        min_y = min(min_y, vertical_expansion)  # Top edge of original drawing
-        max_x = max(max_x, side_expansion + original_width)  # Right edge of original drawing
+        min_x = min(min_x, left_expansion)  # Left edge of original drawing
+        
+        # Smart top cropping: if we have labels, crop from just above the topmost label
+        # This removes text area above the drawing on first page
+        if topmost_label_y != float('inf'):
+            # Crop from 5% above the topmost label position
+            min_y = max(0, int(topmost_label_y * 0.95))
+        else:
+            min_y = min(min_y, vertical_expansion)  # Default: top edge of original drawing
+        
+        max_x = max(max_x, left_expansion + original_width)  # Right edge of original drawing
         max_y = max(max_y, vertical_expansion + original_height)  # Bottom edge of original drawing
         
         # Include all label positions
