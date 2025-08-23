@@ -54,32 +54,52 @@
         <p>{{ jobData.message }}</p>
       </div>
 
-      <!-- 추출된 이미지 -->
-      <div v-if="jobData.extractedImages && jobData.extractedImages.length > 0" class="images-section">
-        <div class="tab-header">
-          <button 
-            @click="activeTab = 'original'" 
-            :class="{ active: activeTab === 'original' }">
-            원본 도면 ({{ jobData.extractedImages.length }})
-          </button>
-          <button 
-            @click="activeTab = 'annotated'" 
-            :class="{ active: activeTab === 'annotated' }">
-            어노테이션 ({{ jobData.annotatedImages?.length || 0 }})
-          </button>
+      <!-- 추출된 도면 -->
+      <div v-if="jobData.extractedImages && jobData.extractedImages.length > 0" class="results-section">
+        <div class="results-header">
+          <h2 class="results-title">추출된 도면</h2>
+          <div class="results-count">총 {{ jobData.extractedImages.length }}개</div>
         </div>
 
+        <!-- Original Images -->
         <div class="image-grid">
-          <div v-if="activeTab === 'original'" class="images">
-            <div v-for="(image, index) in jobData.extractedImages" :key="index" class="image-item">
-              <img :src="getImageUrl(image)" :alt="`도면 ${index + 1}`" @click="openModal(getImageUrl(image))" />
-              <p>{{ getImageName(image) }}</p>
+          <div v-for="(image, index) in jobData.extractedImages" :key="index" class="image-card">
+            <div class="image-wrapper">
+              <img 
+                :src="getImageUrl(image)" 
+                :alt="`도면 ${index + 1}`" 
+                @click="openModal(getImageUrl(image))"
+                style="cursor: pointer;"
+              />
+            </div>
+            <div class="image-info">
+              <div class="image-title">도면 {{ index + 1 }}</div>
+              <div class="image-meta">
+                <span class="badge badge-original">원본</span>
+              </div>
             </div>
           </div>
-          <div v-else-if="activeTab === 'annotated'" class="images">
-            <div v-for="(image, index) in jobData.annotatedImages" :key="index" class="image-item">
-              <img :src="getImageUrl(image)" :alt="`어노테이션 ${index + 1}`" @click="openModal(getImageUrl(image))" />
-              <p>{{ getImageName(image) }}</p>
+        </div>
+
+        <!-- Annotated Images -->
+        <div v-if="jobData.annotatedImages && jobData.annotatedImages.length > 0" class="annotated-section">
+          <h3>어노테이션 도면</h3>
+          <div class="image-grid">
+            <div v-for="(image, index) in jobData.annotatedImages" :key="'annotated-' + index" class="image-card">
+              <div class="image-wrapper">
+                <img 
+                  :src="getImageUrl(image)" 
+                  :alt="`어노테이션 ${index + 1}`" 
+                  @click="openModal(getImageUrl(image))"
+                  style="cursor: pointer;"
+                />
+              </div>
+              <div class="image-info">
+                <div class="image-title">어노테이션 {{ index + 1 }}</div>
+                <div class="image-meta">
+                  <span class="badge badge-annotated">명칭 추가됨</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -102,7 +122,15 @@
     <div v-if="modalImage" class="modal" @click="closeModal">
       <div class="modal-content" @click.stop>
         <span class="close" @click="closeModal">&times;</span>
-        <img :src="modalImage" alt="확대 이미지" />
+        <img 
+          :src="modalImage" 
+          alt="확대 이미지" 
+          @error="handleImageError"
+          @load="handleImageLoad"
+        />
+        <div v-if="imageError" class="error-message">
+          이미지를 불러올 수 없습니다: {{ modalImage }}
+        </div>
       </div>
     </div>
   </div>
@@ -122,9 +150,9 @@ const jobId = computed(() => route.params.jobId)
 const jobData = ref(null)
 const loading = ref(true)
 const error = ref(null)
-const activeTab = ref('original')
 const modalImage = ref(null)
 const pollingInterval = ref(null)
+const imageError = ref(false)
 
 const getStatusClass = (status) => {
   const statusClasses = {
@@ -175,11 +203,24 @@ const getImageName = (image) => {
 }
 
 const openModal = (imageUrl) => {
+  console.log('Opening modal with image URL:', imageUrl)
   modalImage.value = imageUrl
+  imageError.value = false
 }
 
 const closeModal = () => {
   modalImage.value = null
+  imageError.value = false
+}
+
+const handleImageError = (event) => {
+  console.error('Image failed to load:', event.target.src)
+  imageError.value = true
+}
+
+const handleImageLoad = (event) => {
+  console.log('Image loaded successfully:', event.target.src)
+  imageError.value = false
 }
 
 const goBack = () => {
@@ -356,69 +397,114 @@ onUnmounted(() => {
   transition: width 0.3s ease;
 }
 
-.images-section {
+.results-section {
   margin-top: 30px;
 }
 
-.tab-header {
+.results-header {
   display: flex;
-  gap: 10px;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 20px;
-  border-bottom: 2px solid #e0e0e0;
 }
 
-.tab-header button {
-  padding: 10px 20px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 16px;
-  position: relative;
-  color: #666;
+.results-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #2d3748;
+  margin: 0;
 }
 
-.tab-header button.active {
-  color: #007bff;
-}
-
-.tab-header button.active::after {
-  content: '';
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: #007bff;
+.results-count {
+  background: #667eea;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .image-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 24px;
+  margin-bottom: 30px;
 }
 
-.image-item {
-  text-align: center;
+.image-card {
+  background: white;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
+  transition: all 0.3s ease;
 }
 
-.image-item img {
+.image-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+}
+
+.image-wrapper {
+  position: relative;
   width: 100%;
   height: 200px;
-  object-fit: contain;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: transform 0.2s;
+  overflow: hidden;
 }
 
-.image-item img:hover {
+.image-wrapper img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #f8fafc;
+  transition: transform 0.3s ease;
+}
+
+.image-card:hover .image-wrapper img {
   transform: scale(1.05);
 }
 
-.image-item p {
-  margin-top: 5px;
+.image-info {
+  padding: 16px;
+}
+
+.image-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #2d3748;
+  margin-bottom: 8px;
+}
+
+.image-meta {
+  display: flex;
+  gap: 8px;
+}
+
+.badge {
+  padding: 4px 12px;
+  border-radius: 12px;
   font-size: 12px;
-  color: #666;
+  font-weight: 600;
+}
+
+.badge-original {
+  background: #e0f2fe;
+  color: #0277bd;
+}
+
+.badge-annotated {
+  background: #f3e5f5;
+  color: #7b1fa2;
+}
+
+.annotated-section {
+  margin-top: 40px;
+}
+
+.annotated-section h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #2d3748;
+  margin-bottom: 20px;
 }
 
 .mappings-section {
@@ -495,5 +581,15 @@ onUnmounted(() => {
 
 .close:hover {
   color: #ccc;
+}
+
+.error-message {
+  color: #dc3545;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 10px;
+  border-radius: 5px;
+  margin-top: 10px;
+  font-size: 14px;
+  word-break: break-all;
 }
 </style>

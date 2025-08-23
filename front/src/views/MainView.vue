@@ -144,6 +144,18 @@
           </div>
         </div>
       </div>
+
+      <!-- 번호 매핑 정보 -->
+      <div v-if="numberMappings && Object.keys(numberMappings).length > 0" class="mappings-section">
+        <h3>부품 번호 매핑</h3>
+        <div class="mappings-grid">
+          <div v-for="(value, key) in numberMappings" :key="key" class="mapping-item">
+            <span class="mapping-key">{{ key }}</span>
+            <span class="mapping-arrow">→</span>
+            <span class="mapping-value">{{ value }}</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Job History Modal -->
@@ -749,5 +761,49 @@ export default {
 
 .header {
   position: relative;
+}
+
+/* Mappings Section */
+.mappings-section {
+  margin-top: 30px;
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.mappings-section h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #2d3748;
+  margin-bottom: 15px;
+}
+
+.mappings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 15px;
+}
+
+.mapping-item {
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  background: #f8f9fa;
+  border-radius: 4px;
+}
+
+.mapping-key {
+  font-weight: bold;
+  color: #007bff;
+}
+
+.mapping-arrow {
+  margin: 0 10px;
+  color: #999;
+}
+
+.mapping-value {
+  flex: 1;
 }
 </style>
