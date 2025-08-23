@@ -2,12 +2,25 @@ FROM python:3.12-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
+    # OpenCV dependencies
     libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender-dev \
     libgomp1 \
+    # Pillow dependencies
+    zlib1g-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libtiff-dev \
+    libfreetype6-dev \
+    liblcms2-dev \
+    libwebp-dev \
+    # Build tools
+    gcc \
+    g++ \
+    # Utils
     wget \
     curl \
     && rm -rf /var/lib/apt/lists/*
