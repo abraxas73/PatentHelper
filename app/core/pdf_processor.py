@@ -349,8 +349,8 @@ class PDFProcessor:
         if has_graphical_content and min_x < float('inf'):
             # Add MUCH LARGER margin for top/bottom to prevent cutting
             h_margin = 30  # Horizontal margin
-            # Increase vertical margin by 5% of page height for better coverage
-            v_margin = int(page.height * 0.05) + 80  # Base 80px + 5% of page height
+            # Increase vertical margin by 10% of page height for better coverage
+            v_margin = int(page.height * 0.10) + 80  # Base 80px + 10% of page height
             
             x0 = max(0, min_x - h_margin)
             y0 = max(0, min_y - v_margin)  # Much more margin at top

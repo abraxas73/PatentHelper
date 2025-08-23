@@ -116,8 +116,8 @@ class ImageAnnotator:
                         max_label_width = max(max_label_width, len(label) * 10)
         
         # Calculate optimized expansion - different for left and right
-        arrow_length = 15  # Extremely short arrow length for minimal spacing
-        padding = 5  # Minimal edge padding
+        arrow_length = 10  # Ultra-short arrow length for minimal spacing
+        padding = 3  # Minimal edge padding
         # Left side - reduced by 10% compared to before
         left_expansion = int((max_label_width + arrow_length + padding) * 0.9)  # 10% reduction
         # Right side needs much more space (10% of original width extra) to prevent label cutoff
@@ -335,8 +335,8 @@ class ImageAnnotator:
             # Ensure label has enough room - account for expanded right area
             label_x = img_width - label_width - 10  # Leave room for the full label
             base_y = cy
-            # Short arrow
-            bend_point = (original_right + 5, cy)  # Close to image edge
+            # Ultra-short arrow for right side too - minimize space
+            bend_point = (original_right + 3, cy)  # Very close to image edge, same as left
         
         # Check for overlaps with existing labels on the same side
         label_height = 25  # Approximate label height
