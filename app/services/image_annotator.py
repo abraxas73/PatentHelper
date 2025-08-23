@@ -93,10 +93,31 @@ class ImageAnnotator:
         original_img = Image.open(image_path)
         original_width, original_height = original_img.size
         
-        # Calculate appropriate expansion based on original image width
-        # Use 15-20% of original width, with min 150px and max 200px for practical labeling
-        expansion_ratio = 0.18  # 18% of original width
-        side_expansion = max(150, min(200, int(original_width * expansion_ratio)))
+        # Get fonts using font manager first (needed for text measurement)
+        font = self.font_manager.get_font(16)
+        small_font = self.font_manager.get_font(12)
+        working_font = font or small_font
+        
+        # Calculate maximum label width needed
+        max_label_width = 0
+        if working_font:
+            temp_img = Image.new('RGB', (1, 1))
+            temp_draw = ImageDraw.Draw(temp_img)
+            for region in numbered_regions:
+                number = region['number']
+                if number in number_mappings:
+                    label = number_mappings[number]
+                    try:
+                        bbox = temp_draw.textbbox((0, 0), label, font=working_font)
+                        text_width = bbox[2] - bbox[0] + 20  # Add padding
+                        max_label_width = max(max_label_width, text_width)
+                    except:
+                        # Fallback calculation
+                        max_label_width = max(max_label_width, len(label) * 10)
+        
+        # Calculate minimum expansion needed (just enough for labels + small margin)
+        min_expansion = 80  # Minimum for arrows and margins
+        side_expansion = max(min_expansion, max_label_width + 40)  # Label width + arrow space
         
         # Create expanded canvas
         expanded_width = original_width + (side_expansion * 2)
@@ -109,9 +130,8 @@ class ImageAnnotator:
         # Create draw object for expanded image
         draw = ImageDraw.Draw(expanded_img)
         
-        # Get fonts using font manager
-        font = self.font_manager.get_font(16)
-        small_font = self.font_manager.get_font(12)
+        # Track label positions to avoid overlaps
+        label_positions = {'left': [], 'right': []}
         
         # Annotate each numbered region
         for region in numbered_regions:
@@ -131,9 +151,9 @@ class ImageAnnotator:
                 'y': center['y']
             }
             
-            # Calculate optimal label position in expanded areas
+            # Calculate optimal label position in expanded areas with overlap avoidance
             arrow_start, bend_point = self._calculate_optimal_label_position_expanded(
-                expanded_img, adjusted_center, bbox, side_expansion
+                expanded_img, adjusted_center, bbox, side_expansion, label_positions, working_font
             )
             
             # Calculate safe arrow end point (slightly away from number center to avoid overlap)
@@ -147,7 +167,7 @@ class ImageAnnotator:
             self._draw_bent_arrow(draw, arrow_start, bend_point, arrow_end)
             
             # Draw label box in expanded area
-            self._draw_label_box(draw, arrow_start, label, font or small_font)
+            self._draw_label_box(draw, arrow_start, label, working_font)
         
         # Save annotated image
         output_path = self.output_dir / output_filename
@@ -254,9 +274,10 @@ class ImageAnnotator:
         
         return arrow_start, bend_point
     
-    def _calculate_optimal_label_position_expanded(self, expanded_img: Image, center: Dict, bbox: Dict, side_expansion: int) -> Tuple[Tuple[int, int], Tuple[int, int]]:
+    def _calculate_optimal_label_position_expanded(self, expanded_img: Image, center: Dict, bbox: Dict, 
+                                                   side_expansion: int, label_positions: Dict, font) -> Tuple[Tuple[int, int], Tuple[int, int]]:
         """
-        Calculate optimal label position in expanded side areas
+        Calculate optimal label position in expanded side areas with overlap avoidance
         Returns: (arrow_start, bend_point) positions
         """
         img_width, img_height = expanded_img.size
@@ -266,37 +287,68 @@ class ImageAnnotator:
         original_left = side_expansion
         original_right = img_width - side_expansion
         
-        # Define label areas in expanded regions
-        left_label_area = {
-            'x_range': (20, original_left - 20),  # Left expansion area
-            'y_range': (50, img_height - 50),
-            'side': 'left'
-        }
-        
-        right_label_area = {
-            'x_range': (original_right + 20, img_width - 20),  # Right expansion area
-            'y_range': (50, img_height - 50),
-            'side': 'right'
-        }
-        
         # Choose the closer side for the label
         distance_to_left = abs(cx - original_left)
         distance_to_right = abs(cx - original_right)
         
         if distance_to_left <= distance_to_right:
             # Use left expansion area
-            zone = left_label_area
-            label_x = zone['x_range'][0] + 30  # Inside left expansion
-            label_y = max(zone['y_range'][0], min(zone['y_range'][1], cy))
-            bend_point = (original_left - 50, cy)  # Further from original image to avoid numbers
+            side = 'left'
+            label_x = 10  # Close to left edge
+            base_y = cy
+            bend_point = (original_left - 15, cy)  # Just outside the image
         else:
             # Use right expansion area  
-            zone = right_label_area
-            label_x = zone['x_range'][1] - 30  # Inside right expansion
-            label_y = max(zone['y_range'][0], min(zone['y_range'][1], cy))
-            bend_point = (original_right + 50, cy)  # Further from original image to avoid numbers
+            side = 'right'
+            label_x = img_width - 10  # Close to right edge (will be adjusted for text width)
+            base_y = cy
+            bend_point = (original_right + 15, cy)  # Just outside the image
         
-        arrow_start = (label_x, label_y)
+        # Check for overlaps with existing labels on the same side
+        label_height = 25  # Approximate label height
+        final_y = base_y
+        
+        # Get existing positions for this side
+        existing_positions = label_positions[side]
+        
+        # Find a non-overlapping Y position
+        if existing_positions:
+            # Sort existing positions by their Y coordinate
+            existing_positions.sort(key=lambda pos: pos[1])
+            
+            # Check if the desired position overlaps with any existing label
+            overlapping = True
+            offset = 0
+            direction = 1  # Start by trying to move down
+            
+            while overlapping and abs(offset) < 200:  # Max offset to prevent infinite loop
+                test_y = base_y + offset
+                overlapping = False
+                
+                for existing_x, existing_y in existing_positions:
+                    # Check if Y positions would overlap (within label_height range)
+                    if abs(test_y - existing_y) < label_height:
+                        overlapping = True
+                        break
+                
+                if overlapping:
+                    # Try alternating between moving up and down
+                    if direction > 0:
+                        offset = abs(offset) + label_height
+                        direction = -1
+                    else:
+                        offset = -(abs(offset) + label_height)
+                        direction = 1
+                else:
+                    final_y = test_y
+        
+        # Adjust bend point Y to match final label Y
+        bend_point = (bend_point[0], final_y)
+        
+        # Store this label position
+        label_positions[side].append((label_x, final_y))
+        
+        arrow_start = (label_x, final_y)
         return arrow_start, bend_point
     
     def _draw_bent_arrow(self, draw: ImageDraw, arrow_start: Tuple[int, int], bend_point: Tuple[int, int], arrow_end: Tuple[int, int]):
