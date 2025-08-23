@@ -3,6 +3,7 @@ import json
 import time
 import boto3
 import tempfile
+import logging
 from datetime import datetime
 from pathlib import Path
 import sys
@@ -12,6 +13,13 @@ from app.core.pdf_processor import PDFProcessor
 from app.services.text_analyzer import TextAnalyzer
 from app.services.image_extractor import ImageExtractor
 from app.services.image_annotator import ImageAnnotator
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # AWS clients
 s3 = boto3.client('s3')
@@ -53,8 +61,14 @@ def process_pdf(job_id, s3_key):
         
         # Download PDF from S3
         with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file:
+            logger.info(f"Downloading PDF from S3: {BUCKET_NAME}/{s3_key}")
             s3.download_file(BUCKET_NAME, s3_key, tmp_file.name)
             pdf_path = tmp_file.name
+            logger.info(f"PDF downloaded to: {pdf_path}")
+            
+            # Check file size
+            file_size = os.path.getsize(pdf_path)
+            logger.info(f"Downloaded file size: {file_size} bytes")
         
         # Process PDF with context manager
         with PDFProcessor(Path(pdf_path)) as pdf_processor:

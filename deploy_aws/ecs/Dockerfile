@@ -24,9 +24,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Pre-download EasyOCR models to avoid runtime download
 RUN python -c "import easyocr; reader = easyocr.Reader(['ko', 'en'], gpu=False, download_enabled=True); print('Models downloaded successfully')"
 
-# Copy application code
-COPY processor/ ./processor/
+# Copy application code from current directory (deploy_aws/ecs/)
 COPY app/ ./app/
+COPY processor/ ./processor/
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
