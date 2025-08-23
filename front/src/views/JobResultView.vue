@@ -331,6 +331,7 @@ onUnmounted(() => {
   border-radius: 4px;
   cursor: pointer;
   font-size: 14px;
+  white-space: nowrap;
 }
 
 .back-button:hover {
