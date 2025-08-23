@@ -46,10 +46,24 @@ jobs:
         echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
     - name: Update ECS task definition
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
       run: |
-        # Register new task definition with updated image
-        TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition $ECS_TASK_DEFINITION --region $AWS_REGION --query taskDefinition)
-        NEW_TASK_DEFINITION=$(echo $TASK_DEFINITION | jq --arg IMAGE "$ECR_REGISTRY/$ECR_REPOSITORY:latest" '.containerDefinitions[0].image = $IMAGE')
-        aws ecs register-task-definition --cli-input-json "$NEW_TASK_DEFINITION" --region $AWS_REGION
+        # Get the current task definition and remove unnecessary fields
+        TASK_DEFINITION=$(aws ecs describe-task-definition \
+          --task-definition $ECS_TASK_DEFINITION \
+          --region $AWS_REGION \
+          --query taskDefinition)
+        
+        # Update the image and remove fields that shouldn't be in the registration
+        NEW_TASK_DEFINITION=$(echo $TASK_DEFINITION | jq \
+          --arg IMAGE "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
+          '.containerDefinitions[0].image = $IMAGE | 
+           del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)')
+        
+        # Register the new task definition
+        aws ecs register-task-definition \
+          --cli-input-json "$NEW_TASK_DEFINITION" \
+          --region $AWS_REGION
         
         echo "Task definition updated successfully"
