@@ -8,26 +8,80 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class FontManager:
+    """Manages fonts with fallback chain and caching"""
+    
+    def __init__(self):
+        self.font_cache = {}
+        self.fallback_fonts = [
+            # Unicode fonts that support CJK
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            # Korean specific fonts
+            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+            "/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
+            "/usr/share/fonts/truetype/unfonts-core/UnDotum.ttf",
+            # DejaVu fonts (good Unicode support)
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            # Liberation fonts
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            # macOS
+            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+            # Windows
+            "C:/Windows/Fonts/malgun.ttf",
+            "C:/Windows/Fonts/gulim.ttc"
+        ]
+        
+        self.working_font = self._find_working_font()
+        
+    def _find_working_font(self) -> Optional[str]:
+        """Find the first working font from fallback chain"""
+        for font_path in self.fallback_fonts:
+            if Path(font_path).exists():
+                try:
+                    # Test if font can handle Korean text
+                    test_font = ImageFont.truetype(font_path, 16)
+                    # Try to get mask for Korean text
+                    test_font.getmask("테스트")
+                    logger.info(f"Found working Unicode font: {font_path}")
+                    return font_path
+                except Exception as e:
+                    logger.debug(f"Font {font_path} failed test: {e}")
+                    continue
+        
+        logger.warning("No working Unicode font found, will use PIL default")
+        return None
+    
+    def get_font(self, size: int) -> Optional[ImageFont.ImageFont]:
+        """Get cached font of specified size"""
+        if not self.working_font:
+            return None
+            
+        cache_key = (self.working_font, size)
+        if cache_key not in self.font_cache:
+            try:
+                self.font_cache[cache_key] = ImageFont.truetype(self.working_font, size)
+            except Exception as e:
+                logger.error(f"Failed to load font {self.working_font} size {size}: {e}")
+                return None
+        
+        return self.font_cache[cache_key]
+
+
 class ImageAnnotator:
     def __init__(self, output_dir: Path, font_path: Optional[str] = None):
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Try to load Korean font
-        self.font_path = font_path
-        if not self.font_path:
-            # Try common Korean font paths
-            font_candidates = [
-                "/System/Library/Fonts/AppleSDGothicNeo.ttc",  # macOS
-                "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",  # Linux
-                "C:/Windows/Fonts/malgun.ttf",  # Windows
-                "/System/Library/Fonts/Helvetica.ttc"  # Fallback
-            ]
-            
-            for candidate in font_candidates:
-                if Path(candidate).exists():
-                    self.font_path = candidate
-                    break
+        # Initialize font manager
+        self.font_manager = FontManager()
+        
+        # Override with custom font if provided
+        if font_path and Path(font_path).exists():
+            self.font_manager.working_font = font_path
+            self.font_manager.font_cache.clear()  # Clear cache to use new font
     
     def annotate_image(self, 
                       image_path: str,
@@ -39,13 +93,9 @@ class ImageAnnotator:
         img = Image.open(image_path)
         draw = ImageDraw.Draw(img)
         
-        # Try to load font
-        try:
-            font = ImageFont.truetype(self.font_path, 16) if self.font_path else None
-            small_font = ImageFont.truetype(self.font_path, 12) if self.font_path else None
-        except:
-            font = None
-            small_font = None
+        # Get fonts using font manager
+        font = self.font_manager.get_font(16)
+        small_font = self.font_manager.get_font(12)
         
         # Annotate each numbered region
         for region in numbered_regions:
@@ -127,15 +177,24 @@ class ImageAnnotator:
     def _draw_label_box(self, draw: ImageDraw, position: Tuple[int, int], text: str, font: Optional[ImageFont.ImageFont]):
         x, y = position
         
+        # Use the provided font or get a default size font from font manager
+        if font is None:
+            font = self.font_manager.get_font(14)
+        
         # Calculate text size
         if font:
-            bbox = draw.textbbox((x, y), text, font=font)
-            text_width = bbox[2] - bbox[0]
-            text_height = bbox[3] - bbox[1]
+            try:
+                bbox = draw.textbbox((x, y), text, font=font)
+                text_width = bbox[2] - bbox[0]
+                text_height = bbox[3] - bbox[1]
+            except Exception as e:
+                logger.debug(f"Failed to calculate text size with font: {e}")
+                text_width = len(text) * 10
+                text_height = 15
         else:
-            # Estimate for default font
+            # Fallback estimation for default font
             text_width = len(text) * 8
-            text_height = 15
+            text_height = 12
         
         # Draw background box
         padding = 5
@@ -147,8 +206,26 @@ class ImageAnnotator:
         ]
         draw.rectangle(box_coords, fill='white', outline='red', width=2)
         
-        # Draw text
-        draw.text((x, y), text, fill='black', font=font)
+        # Draw text with proper Unicode font support
+        try:
+            if font:
+                draw.text((x, y), text, fill='black', font=font)
+            else:
+                # Use PIL default font as last resort
+                draw.text((x, y), text, fill='black')
+        except Exception as e:
+            logger.warning(f"Failed to draw text '{text}': {e}")
+            # Fallback: try to draw just the number part
+            try:
+                number_part = text.split(':')[0] if ':' in text else text[:10]
+                if font:
+                    draw.text((x, y), number_part, fill='black', font=font)
+                else:
+                    draw.text((x, y), number_part, fill='black')
+            except Exception as fallback_error:
+                logger.warning(f"Fallback text rendering also failed: {fallback_error}")
+                # Last resort - draw placeholder
+                draw.text((x, y), "???", fill='black')
     
     def create_side_by_side_comparison(self,
                                       original_path: str,
@@ -176,10 +253,7 @@ class ImageAnnotator:
         
         # Add labels
         draw = ImageDraw.Draw(combined)
-        try:
-            font = ImageFont.truetype(self.font_path, 20) if self.font_path else None
-        except:
-            font = None
+        font = self.font_manager.get_font(20)
         
         draw.text((original.width // 2 - 30, 10), "Original", fill='black', font=font)
         draw.text((original.width + 20 + annotated.width // 2 - 40, 10), "Annotated", fill='black', font=font)
