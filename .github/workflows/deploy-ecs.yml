@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'deploy_aws/ecs/**'
+      - 'app/**'
       - '.github/workflows/deploy-ecs.yml'
   workflow_dispatch:
 
