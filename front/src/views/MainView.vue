@@ -437,7 +437,29 @@ export default {
     const loadHistory = async () => {
       try {
         // Load from localStorage first (for backward compatibility)
-        const localHistory = JSON.parse(localStorage.getItem('jobHistory') || '[]')
+        let localHistory = JSON.parse(localStorage.getItem('jobHistory') || '[]')
+        
+        // Clean up invalid timestamp data in localStorage
+        localHistory = localHistory.map(job => {
+          if (job.createdAt && job.createdAt < 10000000000) {
+            // If timestamp is in seconds but stored as milliseconds incorrectly
+            // Update it to current timestamp for old invalid entries
+            return {
+              ...job,
+              createdAt: Date.now()
+            }
+          }
+          return job
+        }).filter(job => {
+          // Remove entries with invalid dates (1970 era)
+          const date = new Date(job.createdAt)
+          return date.getFullYear() > 2020 // Only keep entries from after 2020
+        })
+        
+        // Update localStorage with cleaned data
+        if (localHistory.length !== JSON.parse(localStorage.getItem('jobHistory') || '[]').length) {
+          localStorage.setItem('jobHistory', JSON.stringify(localHistory))
+        }
         
         // Try to load from server
         const response = await axios.get(`${config.API_URL}/history?limit=50`)
@@ -459,13 +481,32 @@ export default {
         }
       } catch (error) {
         console.error('Failed to load history from server:', error)
-        // Fallback to localStorage
-        jobHistory.value = JSON.parse(localStorage.getItem('jobHistory') || '[]')
+        // Fallback to localStorage with cleanup
+        let localHistory = JSON.parse(localStorage.getItem('jobHistory') || '[]')
+        localHistory = localHistory.filter(job => {
+          const date = new Date(job.createdAt)
+          return date.getFullYear() > 2020
+        })
+        jobHistory.value = localHistory
       }
     }
 
     const formatDate = (timestamp) => {
-      const date = new Date(timestamp)
+      if (!timestamp) return '-'
+      
+      // Check if timestamp is in seconds (Unix timestamp) or milliseconds (JavaScript timestamp)
+      let dateValue = timestamp
+      if (timestamp < 10000000000) {
+        // If timestamp is less than 10 billion, it's probably in seconds, convert to milliseconds
+        dateValue = timestamp * 1000
+      }
+      
+      const date = new Date(dateValue)
+      // Check if date is valid
+      if (isNaN(date.getTime())) {
+        return '잘못된 날짜'
+      }
+      
       return date.toLocaleString('ko-KR')
     }
 

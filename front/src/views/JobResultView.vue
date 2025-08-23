@@ -169,7 +169,20 @@ const getStatusText = (status) => {
 
 const formatDate = (timestamp) => {
   if (!timestamp) return '-'
-  const date = new Date(timestamp * 1000)
+  
+  // Check if timestamp is in seconds (Unix timestamp) or milliseconds (JavaScript timestamp)
+  let dateValue = timestamp
+  if (timestamp < 10000000000) {
+    // If timestamp is less than 10 billion, it's probably in seconds, convert to milliseconds
+    dateValue = timestamp * 1000
+  }
+  
+  const date = new Date(dateValue)
+  // Check if date is valid
+  if (isNaN(date.getTime())) {
+    return '잘못된 날짜'
+  }
+  
   return date.toLocaleString('ko-KR')
 }
 
