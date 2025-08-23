@@ -16,6 +16,7 @@
     <!-- Upload Section -->
     <div class="upload-section">
       <div 
+        v-if="!isCompleted"
         class="upload-area"
         :class="{ dragover: isDragging }"
         @drop="handleDrop"
@@ -28,6 +29,7 @@
             accept=".pdf"
             @change="handleFileSelect"
             ref="fileInput"
+            :disabled="isProcessing || isCompleted"
           />
           <div class="upload-icon">📄</div>
           <div class="upload-text">PDF 파일을 선택하거나 드래그하세요</div>
@@ -35,24 +37,39 @@
         </label>
       </div>
 
+      <!-- Completed Message -->
+      <div v-else class="completed-area">
+        <div class="completion-icon">✅</div>
+        <div class="completion-text">도면 추출이 완료되었습니다!</div>
+        <div class="completion-file">{{ selectedFile?.name || uploadedFile?.name }}</div>
+      </div>
+
       <!-- File Info -->
-      <div v-if="selectedFile" class="file-info">
+      <div v-if="selectedFile && !isCompleted" class="file-info">
         <div>
           <div class="file-name">{{ selectedFile.name }}</div>
           <div class="file-size">{{ formatFileSize(selectedFile.size) }}</div>
         </div>
-        <button class="btn btn-danger" @click="removeFile">삭제</button>
+        <button class="btn btn-danger" @click="removeFile" :disabled="isProcessing">삭제</button>
       </div>
 
       <!-- Action Buttons -->
       <div class="action-buttons">
         <button 
+          v-if="!isCompleted"
           class="btn btn-primary"
           :disabled="!selectedFile || isProcessing"
           @click="uploadFile"
         >
           <span v-if="isProcessing" class="loading"></span>
           <span v-else>도면 추출 시작</span>
+        </button>
+        <button 
+          v-else
+          class="btn btn-success"
+          @click="startNewTask"
+        >
+          새 작업
         </button>
         <span v-if="isProcessing" class="processing-time">
           처리 중... {{ processingTime }}초
@@ -236,6 +253,7 @@ export default {
     const processingTimer = ref(null)
     const progressMessage = ref('')
     const progress = ref(0)
+    const isCompleted = ref(false)  // Track if extraction is completed
     
     // Serverless specific
     const currentJobId = ref(null)
@@ -376,6 +394,7 @@ export default {
             stopStatusCheck()
             stopTimer()
             isProcessing.value = false
+            isCompleted.value = true  // Mark as completed
             updateHistoryStatus(currentJobId.value, 'COMPLETED')
             // Show result URL
             successMessage.value = `처리 완료! 결과 페이지: ${window.location.origin}/#/job/${currentJobId.value}`
@@ -568,6 +587,11 @@ export default {
       return '파일명 없음'
     }
 
+    const startNewTask = () => {
+      // Reload the page to start fresh
+      window.location.href = '/'
+    }
+
     const trackProcessingJob = (job) => {
       // Hide history modal
       showHistory.value = false
@@ -626,6 +650,7 @@ export default {
       uploadedFile,
       isDragging,
       isProcessing,
+      isCompleted,
       images,
       annotatedImages,
       errorMessage,
@@ -653,7 +678,8 @@ export default {
       formatDate,
       getStatusText,
       getJobFilename,
-      trackProcessingJob
+      trackProcessingJob,
+      startNewTask
     }
   }
 }
@@ -913,6 +939,49 @@ export default {
 
 .view-button.processing-button:hover {
   background: #138496;
+}
+
+/* Completed Area Styles */
+.completed-area {
+  text-align: center;
+  padding: 60px 20px;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  border-radius: 12px;
+  border: 2px dashed #28a745;
+}
+
+.completion-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+}
+
+.completion-text {
+  font-size: 24px;
+  font-weight: 600;
+  color: #28a745;
+  margin-bottom: 10px;
+}
+
+.completion-file {
+  font-size: 16px;
+  color: #6c757d;
+}
+
+.btn-success {
+  background: #28a745;
+  color: white;
+  border: none;
+  padding: 12px 32px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-success:hover {
+  background: #218838;
+  transform: translateY(-2px);
 }
 
 .header {
