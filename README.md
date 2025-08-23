@@ -110,5 +110,46 @@ print(f"추출된 이미지: {len(result['extracted_images'])}개")
 print(f"발견된 번호-명칭 매핑: {len(result['number_mappings'])}개")
 ```
 
+## 배포 (Deployment)
+
+### 서버 배포
+소스 코드 변경 후 OCI 서버에 배포하려면:
+
+```bash
+./deploy.sh
+```
+
+이 스크립트는 다음 작업을 수행합니다:
+- 프론트엔드 빌드 (npm run build)
+- 필요한 파일들을 서버로 업로드
+- Docker 컨테이너 재빌드 및 재시작
+- 서비스 상태 확인
+
+### SSL 인증서 설정
+HTTPS를 위한 SSL 인증서 설정 (최초 1회만):
+
+```bash
+./init-letsencrypt.sh
+```
+
+### 배포 관련 스크립트 설명
+
+| 스크립트 | 설명 | 사용 시기 |
+|---------|------|----------|
+| `deploy.sh` | 메인 배포 스크립트 | 코드 변경 후 서버에 배포할 때 |
+| `init-letsencrypt.sh` | SSL 인증서 설정 | 최초 HTTPS 설정 시 |
+| `docker-compose.prod.yml` | 프로덕션 Docker 설정 | 서버에서 사용 |
+| `nginx-system.conf` | HTTP nginx 설정 | 서버 nginx 설정 |
+| `nginx-system-ssl.conf` | HTTPS nginx 설정 | SSL 적용 후 사용 |
+
+### 서버 접속
+```bash
+ssh -i ~/.ssh/ssh-key-2025-08-19.key ubuntu@patent.sncbears.cloud
+```
+
+### 서비스 URL
+- HTTP: http://patent.sncbears.cloud (자동으로 HTTPS로 리다이렉트)
+- HTTPS: https://patent.sncbears.cloud
+
 ## etc
-- ssh -i ~/.ssh/ssh-key-2025-08-19.key ubuntu@152.67.211.0
+- 서버 IP: 152.67.211.0

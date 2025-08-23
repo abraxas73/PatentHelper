@@ -144,6 +144,23 @@ body {
   display: flex;
   gap: 15px;
   justify-content: center;
+  align-items: center;
+}
+
+.processing-time {
+  color: #6b7280;
+  font-size: 14px;
+  font-weight: 500;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .loading {

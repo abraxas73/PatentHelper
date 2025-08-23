@@ -1,0 +1,61 @@
+# Version Control
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+venv/
+.venv/
+env/
+.env.local
+
+# Node
+node_modules/
+front/node_modules/
+front/dist/
+front/.vite/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+data/
+certbot/
+logs/
+*.log
+test_*.py
+tests/
+*.pdf
+*.jpg
+*.png
+*.svg
+
+# Documentation
+*.md
+LICENSE
+README.md
+DEPLOYMENT.md
+SSL_SETUP.md
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Scripts
+*.sh

@@ -6,7 +6,8 @@ echo "🚀 Starting PatentHelper deployment to OCI..."
 
 # Configuration
 SERVER_USER="ubuntu"  # Change if your OCI user is different
-SERVER_HOST="patent.sncbears.com"
+SERVER_HOST="patent.sncbears.cloud"
+SSH_KEY="$HOME/.ssh/ssh-key-2025-08-19.key"  # SSH private key path
 PROJECT_NAME="PatentHelper"
 REMOTE_DIR="/home/$SERVER_USER/$PROJECT_NAME"
 
@@ -32,18 +33,21 @@ cp -r front/dist deploy_temp/front_dist
 cp main.py deploy_temp/
 cp requirements.txt deploy_temp/
 cp Dockerfile deploy_temp/
-cp Dockerfile.frontend deploy_temp/
-cp docker-compose.yml deploy_temp/
+cp Dockerfile.frontend.prod deploy_temp/Dockerfile.frontend
+cp docker-compose.prod.yml deploy_temp/docker-compose.yml
 cp nginx.conf deploy_temp/
-cp .env deploy_temp/ 2>/dev/null || echo "No .env file found, skipping..."
+cp nginx-system.conf deploy_temp/
+cp .env.production deploy_temp/.env 2>/dev/null || echo "Using production environment..."
 
 echo -e "${YELLOW}📤 Uploading to server...${NC}"
 # Create directory on server if it doesn't exist
-ssh $SERVER_USER@$SERVER_HOST "mkdir -p $REMOTE_DIR"
+ssh -i $SSH_KEY $SERVER_USER@$SERVER_HOST "mkdir -p $REMOTE_DIR"
 
 # Upload files
 rsync -avz --delete \
+    -e "ssh -i $SSH_KEY" \
     --exclude 'data/' \
+    --exclude 'certbot/' \
     --exclude '__pycache__/' \
     --exclude '*.pyc' \
     --exclude '.git/' \
@@ -57,17 +61,22 @@ rm -rf deploy_temp
 
 echo -e "${YELLOW}🔧 Setting up on server...${NC}"
 # Execute commands on server
-ssh $SERVER_USER@$SERVER_HOST << 'ENDSSH'
+ssh -i $SSH_KEY $SERVER_USER@$SERVER_HOST << 'ENDSSH'
 cd /home/ubuntu/PatentHelper
 
 echo "Stopping existing containers..."
-docker-compose down 2>/dev/null || true
+sudo docker-compose down 2>/dev/null || true
 
 echo "Building and starting containers..."
-docker-compose up -d --build
+sudo docker-compose up -d --build
 
 echo "Checking container status..."
-docker-compose ps
+sudo docker-compose ps
+
+# Only update nginx config if the file was uploaded (optional)
+if [ -f "nginx-system-ssl.conf" ] || [ -f "nginx-system.conf" ]; then
+    echo "Note: nginx config files found but not updating (run init-letsencrypt.sh if nginx config changes needed)"
+fi
 
 echo "Waiting for services to be ready..."
 sleep 10
@@ -78,9 +87,9 @@ curl -f http://localhost:8000/api/v1/status || echo "Backend might need more tim
 ENDSSH
 
 echo -e "${GREEN}✅ Deployment complete!${NC}"
-echo -e "${GREEN}🌐 Your application should be available at: http://patent.sncbears.com${NC}"
+echo -e "${GREEN}🌐 Your application should be available at: https://patent.sncbears.cloud${NC}"
 echo ""
 echo "Useful commands:"
-echo "  - Check logs: ssh $SERVER_USER@$SERVER_HOST 'cd $REMOTE_DIR && docker-compose logs -f'"
-echo "  - Restart: ssh $SERVER_USER@$SERVER_HOST 'cd $REMOTE_DIR && docker-compose restart'"
-echo "  - Stop: ssh $SERVER_USER@$SERVER_HOST 'cd $REMOTE_DIR && docker-compose down'"
+echo "  - Check logs: ssh -i $SSH_KEY $SERVER_USER@$SERVER_HOST 'cd $REMOTE_DIR && docker-compose logs -f'"
+echo "  - Restart: ssh -i $SSH_KEY $SERVER_USER@$SERVER_HOST 'cd $REMOTE_DIR && docker-compose restart'"
+echo "  - Stop: ssh -i $SSH_KEY $SERVER_USER@$SERVER_HOST 'cd $REMOTE_DIR && docker-compose down'"

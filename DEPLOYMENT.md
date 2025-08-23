@@ -5,7 +5,8 @@
 ### 사전 요구사항
 - OCI 서버 (Ubuntu 20.04 이상 권장)
 - Docker 및 Docker Compose 설치
-- 도메인 설정 (patent.sncbears.com)
+- 도메인 설정 (patent.sncbears.cloud)
+- SSH 키 파일 (~/.ssh/ssh-key-2025-08-19.key)
 
 ### 서버 초기 설정
 
@@ -46,14 +47,15 @@ sudo iptables -I INPUT -p tcp --dport 8000 -j ACCEPT
 1. **코드 업로드**
 ```bash
 # 로컬에서
-rsync -avz --exclude 'node_modules' --exclude 'data' --exclude '.git' \
-  . ubuntu@patent.sncbears.com:/home/ubuntu/PatentHelper/
+rsync -avz -e "ssh -i ~/.ssh/ssh-key-2025-08-19.key" \
+  --exclude 'node_modules' --exclude 'data' --exclude '.git' \
+  . ubuntu@patent.sncbears.cloud:/home/ubuntu/PatentHelper/
 ```
 
 2. **서버에서 Docker 컨테이너 실행**
 ```bash
 # 서버에 SSH 접속
-ssh ubuntu@patent.sncbears.com
+ssh -i ~/.ssh/ssh-key-2025-08-19.key ubuntu@patent.sncbears.cloud
 
 # 프로젝트 디렉토리로 이동
 cd /home/ubuntu/PatentHelper
@@ -113,7 +115,7 @@ sudo apt install certbot python3-certbot-nginx
 
 2. **SSL 인증서 발급**
 ```bash
-sudo certbot --nginx -d patent.sncbears.com
+sudo certbot --nginx -d patent.sncbears.cloud
 ```
 
 3. **자동 갱신 설정**

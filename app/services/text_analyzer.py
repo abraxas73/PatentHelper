@@ -160,6 +160,9 @@ class TextAnalyzer:
         # Remove trailing punctuation
         label = re.sub(r'[,，.。;；、]+$', '', label)
         
+        # Remove trailing numbers (often reference numbers)
+        label = re.sub(r'\s*\d+$', '', label)
+        
         # Remove line breaks and excessive spaces
         label = re.sub(r'\s+', ' ', label)
         

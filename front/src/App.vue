@@ -53,6 +53,9 @@
           <span v-if="isProcessing" class="loading"></span>
           <span v-else>도면 추출 시작</span>
         </button>
+        <span v-if="isProcessing" class="processing-time">
+          처리 중... {{ processingTime }}초
+        </span>
       </div>
 
       <!-- Messages -->
@@ -181,6 +184,8 @@ export default {
     const numberMappings = ref({})
     const modalOpen = ref(false)
     const selectedImage = ref(null)
+    const processingTime = ref(0)
+    const processingTimer = ref(null)
 
     const handleFileSelect = (event) => {
       const file = event.target.files[0]
@@ -229,6 +234,12 @@ export default {
       isProcessing.value = true
       errorMessage.value = ''
       successMessage.value = ''
+      processingTime.value = 0
+
+      // Start timer
+      processingTimer.value = setInterval(() => {
+        processingTime.value += 1
+      }, 1000)
 
       const formData = new FormData()
       formData.append('file', selectedFile.value)
@@ -251,6 +262,11 @@ export default {
         errorMessage.value = error.response?.data?.detail || '처리 중 오류가 발생했습니다.'
       } finally {
         isProcessing.value = false
+        // Stop timer
+        if (processingTimer.value) {
+          clearInterval(processingTimer.value)
+          processingTimer.value = null
+        }
       }
     }
 
@@ -317,7 +333,8 @@ export default {
       openAnnotatedModal,
       closeModal,
       modalOpen,
-      selectedImage
+      selectedImage,
+      processingTime
     }
   }
 }
