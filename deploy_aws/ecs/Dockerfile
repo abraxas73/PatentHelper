@@ -17,6 +17,10 @@ RUN apt-get update && apt-get install -y \
     libfreetype6-dev \
     liblcms2-dev \
     libwebp-dev \
+    # Korean fonts
+    fonts-nanum \
+    fonts-nanum-coding \
+    fonts-nanum-extra \
     # Build tools
     gcc \
     g++ \
