@@ -71,10 +71,24 @@ class FontManager:
 
 
 class ImageAnnotator:
-    def __init__(self, output_dir: Path, font_path: Optional[str] = None):
+    def __init__(self, output_dir: Path, font_path: Optional[str] = None, debug_mode: bool = None):
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
+        # Auto-detect debug mode if not specified
+        if debug_mode is None:
+            # Check if running from CLI test script or development environment
+            import sys
+            import os
+            # Debug mode if running from test script or in development
+            self.debug_mode = (
+                'test' in sys.argv[0].lower() or  # Running from test script
+                os.getenv('DEBUG', '').lower() in ('true', '1', 'yes') or  # DEBUG env var
+                os.getenv('ENV', '').lower() in ('dev', 'development')  # Development environment
+            )
+        else:
+            self.debug_mode = debug_mode
+            
         # Initialize font manager
         self.font_manager = FontManager()
         
@@ -82,12 +96,60 @@ class ImageAnnotator:
         if font_path and Path(font_path).exists():
             self.font_manager.working_font = font_path
             self.font_manager.font_cache.clear()  # Clear cache to use new font
+            
+        # Log debug mode status
+        if self.debug_mode:
+            logger.info("ImageAnnotator: Debug mode enabled (red borders will be shown)")
+    
+    def correct_ocr_misrecognition(self,
+                                   numbered_regions: List[Dict],
+                                   number_mappings: Dict[str, str]) -> List[Dict]:
+        """Correct common OCR misrecognitions by checking against known mappings"""
+        corrected_regions = []
+        
+        # Common OCR confusion patterns
+        confusion_pairs = [
+            ('900', '920'),  # 900 often read as 920
+            ('600', '800'),  # 600 sometimes read as 800
+            ('300', '800'),  # 300 sometimes read as 800
+            ('100', '700'),  # 100 sometimes read as 700
+        ]
+        
+        for region in numbered_regions:
+            detected_num = region['number']
+            corrected_num = detected_num
+            
+            # Check if detected number is not in mappings
+            if detected_num not in number_mappings:
+                # Check confusion pairs
+                for correct, confused in confusion_pairs:
+                    if detected_num == confused and correct in number_mappings:
+                        # Check if the correct number is not already detected
+                        already_detected = any(
+                            r['number'] == correct for r in numbered_regions
+                        )
+                        if not already_detected:
+                            logger.info(f"Correcting OCR: {detected_num} -> {correct}")
+                            corrected_num = correct
+                            break
+            
+            # Update region with corrected number
+            corrected_region = region.copy()
+            corrected_region['number'] = corrected_num
+            if corrected_num != detected_num:
+                corrected_region['ocr_original'] = detected_num
+            corrected_regions.append(corrected_region)
+        
+        return corrected_regions
     
     def annotate_image(self, 
                       image_path: str,
                       numbered_regions: List[Dict],
                       number_mappings: Dict[str, str],
                       output_filename: str) -> Path:
+        
+        # Correct OCR misrecognitions
+        numbered_regions = self.correct_ocr_misrecognition(numbered_regions, number_mappings)
         
         # Load original image
         original_img = Image.open(image_path)
@@ -115,13 +177,11 @@ class ImageAnnotator:
                         # Fallback calculation
                         max_label_width = max(max_label_width, len(label) * 10)
         
-        # Calculate optimized expansion - different for left and right
-        arrow_length = 10  # Ultra-short arrow length for minimal spacing
-        padding = 3  # Minimal edge padding
-        # Left side - reduced by 10% compared to before
-        left_expansion = int((max_label_width + arrow_length + padding) * 0.9)  # 10% reduction
-        # Right side needs much more space (10% of original width extra) to prevent label cutoff
-        right_expansion = max_label_width + arrow_length + padding + int(original_width * 0.10)
+        # Calculate optimized expansion - different for each side
+        # Left side - reduced space since labels are closer
+        left_expansion = max(max_label_width - 30, 50)  # Reduced by 50px, minimum 50px
+        # Right side - more expansion for labels that might be pushed right
+        right_expansion = 80  # Increased by 50px for labels that avoid numbers
         
         # Calculate vertical expansion needed for labels that go up/down
         label_height = 30  # Approximate label box height
@@ -139,6 +199,24 @@ class ImageAnnotator:
         # Create draw object for expanded image
         draw = ImageDraw.Draw(expanded_img)
         
+        # DEBUG: Draw dark border around original image area
+        if self.debug_mode:
+            # Original image boundaries in expanded canvas
+            original_x0 = left_expansion
+            original_y0 = vertical_expansion
+            original_x1 = left_expansion + original_width
+            original_y1 = vertical_expansion + original_height
+            
+            # Draw dark gray border (2px thick)
+            draw.rectangle(
+                [original_x0, original_y0, original_x1, original_y1],
+                outline='#333333',  # Dark gray
+                width=2
+            )
+            
+            # Add debug text in dark gray
+            draw.text((original_x0 + 5, original_y0 + 5), "Image Area", fill='#333333', font=font)
+        
         # Track label positions to avoid overlaps
         label_positions = {'left': [], 'right': []}
         
@@ -146,11 +224,12 @@ class ImageAnnotator:
         for region in numbered_regions:
             number = region['number']
             
-            # Skip if no mapping exists
-            if number not in number_mappings:
-                continue
-            
-            label = number_mappings[number]
+            # Use mapping if exists, otherwise use default label
+            if number in number_mappings:
+                label = number_mappings[number]
+            else:
+                # Default label for unmapped numbers
+                label = f"{number}: (미정의)"
             bbox = region['bbox']
             center = region['center']
             
@@ -165,12 +244,13 @@ class ImageAnnotator:
                 expanded_img, adjusted_center, bbox, left_expansion, right_expansion, label_positions, working_font
             )
             
-            # Calculate safe arrow end point (slightly away from number center to avoid overlap)
-            safety_offset = 25  # Distance from number center
-            if bend_point[0] < adjusted_center['x']:  # Arrow coming from left
-                arrow_end = (int(adjusted_center['x'] - safety_offset), int(adjusted_center['y']))
-            else:  # Arrow coming from right
-                arrow_end = (int(adjusted_center['x'] + safety_offset), int(adjusted_center['y']))
+            # Arrow end point should be near the number but not covering it
+            # Stop arrow just before the number with enough space for arrowhead
+            arrowhead_space = 15  # Space for arrowhead plus small gap
+            if bend_point[0] < adjusted_center['x']:  # Arrow from left
+                arrow_end = (int(adjusted_center['x'] - arrowhead_space), int(adjusted_center['y']))  # Stop before number
+            else:  # Arrow from right
+                arrow_end = (int(adjusted_center['x'] + arrowhead_space), int(adjusted_center['y']))  # Stop before number
             
             # Draw bent arrow (L-shaped) to avoid covering the number
             self._draw_bent_arrow(draw, arrow_start, bend_point, arrow_end)
@@ -178,11 +258,21 @@ class ImageAnnotator:
             # Draw label box in expanded area
             self._draw_label_box(draw, arrow_start, label, working_font)
         
+        # DEBUG: Draw expansion area boundaries
+        if self.debug_mode:
+            # Draw left expansion boundary (dark gray)
+            draw.line([(left_expansion, 0), (left_expansion, expanded_height)], fill='#666666', width=1)
+            # Draw right expansion boundary (dark gray)
+            draw.line([(expanded_width - right_expansion, 0), (expanded_width - right_expansion, expanded_height)], fill='#666666', width=1)
+            # Draw vertical expansion boundaries (darker gray)
+            draw.line([(0, vertical_expansion), (expanded_width, vertical_expansion)], fill='#555555', width=1)
+            draw.line([(0, expanded_height - vertical_expansion), (expanded_width, expanded_height - vertical_expansion)], fill='#555555', width=1)
+        
         # Post-process: Re-crop to include only necessary area with labels
         # Also apply top crop based on highest label position
         final_img = self._post_process_crop_with_top_adjustment(
             expanded_img, label_positions, numbered_regions, original_width, original_height, 
-            left_expansion, right_expansion, vertical_expansion)
+            left_expansion, right_expansion, vertical_expansion, self.debug_mode)
         
         # Save annotated image
         output_path = self.output_dir / output_filename
@@ -323,20 +413,56 @@ class ImageAnnotator:
                 pass
         
         if distance_to_left <= distance_to_right:
-            # Use left expansion area with minimal spacing
+            # Use left expansion area - position label OUTSIDE the drawing area
             side = 'left'
-            label_x = 3  # Extremely close to left edge
+            # Ensure minimum arrow length of 10px from number to label
+            arrow_min_length = 10
+            # The arrow starts from the number position (cx)
+            # So we need to ensure cx - (label_x + label_width) >= arrow_min_length
+            max_label_right = cx - arrow_min_length  # Maximum right edge of label for 10px arrow
+            
+            # Calculate label position
+            ideal_label_x = original_left - label_width - 15  # Ideal position outside
+            
+            # If ideal position doesn't provide 10px arrow, adjust
+            if ideal_label_x + label_width > max_label_right:
+                label_x = max_label_right - label_width  # Pull label left to ensure 10px arrow
+            else:
+                label_x = ideal_label_x
+                
             base_y = cy
-            # Ultra-short arrow - minimize space even more
-            bend_point = (original_left - 3, cy)  # Minimal gap from image edge
+            # Bend point for L-shaped arrow
+            bend_point = (cx - 20, cy)  # Left of number for proper L-shape
         else:
-            # Use right expansion area with proper spacing to avoid cutoff
+            # Use right expansion area - position label INSIDE the drawing area
             side = 'right'
-            # Ensure label has enough room - account for expanded right area
-            label_x = img_width - label_width - 10  # Leave room for the full label
+            # Calculate position to ensure minimum 10px arrow from number to label
+            arrow_min_length = 10
+            # The arrow starts from the number position (cx), not the edge
+            # So we need to ensure label_x - cx >= arrow_min_length
+            min_label_x = cx + arrow_min_length  # Minimum position for 10px arrow
+            
+            # Check if label would cover the number
+            # Number is typically around 20-30px wide, so check if label would overlap
+            number_clearance = cx + 50  # Clear the number area by 50px
+            
+            # Try to position label inside image area with padding
+            padding = 10
+            ideal_label_x = original_right - label_width - padding
+            
+            # Adjust position based on constraints
+            if ideal_label_x < number_clearance:
+                # Label would cover the number, push it to the right
+                label_x = number_clearance  # Position 50px right of number
+            elif ideal_label_x < min_label_x:
+                # Need minimum arrow length
+                label_x = min_label_x  # Push label right to ensure 10px arrow
+            else:
+                label_x = ideal_label_x
+            
             base_y = cy
-            # Ultra-short arrow for right side too - minimize space
-            bend_point = (original_right + 3, cy)  # Very close to image edge, same as left
+            # Bend point for L-shaped arrow
+            bend_point = (cx + 20, cy)  # Right of number for proper L-shape
         
         # Check for overlaps with existing labels on the same side
         label_height = 25  # Approximate label height
@@ -354,11 +480,33 @@ class ImageAnnotator:
             # Sort existing positions by their Y coordinate
             existing_positions.sort(key=lambda pos: pos[1])
             
+            # Determine if this is in the top or bottom region of the image
+            # Top 30% -> move labels upward when overlapping
+            # Bottom 30% -> move labels downward when overlapping
+            # Middle 40% -> alternate as before
+            image_top_threshold = img_height * 0.3
+            image_bottom_threshold = img_height * 0.7
+            
+            # Determine initial direction based on position
+            if base_y < image_top_threshold:
+                # Top region - prefer moving up
+                initial_direction = -1
+                preferred_direction = -1
+            elif base_y > image_bottom_threshold:
+                # Bottom region - prefer moving down
+                initial_direction = 1
+                preferred_direction = 1
+            else:
+                # Middle region - alternate
+                initial_direction = 1
+                preferred_direction = 0  # No preference
+            
             # Check if the desired position overlaps with any existing label
             overlapping = True
             offset = 0
-            direction = 1  # Start by trying to move down
-            max_offset = 80  # Reduced max offset to stay within boundaries
+            direction = initial_direction
+            max_offset = 120  # Increased to allow more vertical spacing
+            attempts = 0
             
             while overlapping and abs(offset) < max_offset:
                 test_y = base_y + offset
@@ -375,13 +523,29 @@ class ImageAnnotator:
                         break
                 
                 if overlapping:
-                    # Try alternating between moving up and down
-                    if direction > 0:
-                        offset = abs(offset) + label_height
-                        direction = -1
+                    attempts += 1
+                    
+                    if preferred_direction != 0:
+                        # For top/bottom regions, primarily move in preferred direction
+                        if attempts < 3:
+                            # First few attempts, move in preferred direction
+                            offset = preferred_direction * abs(offset + label_height)
+                        else:
+                            # After several attempts, try the opposite direction
+                            if direction == preferred_direction:
+                                direction = -preferred_direction
+                                offset = direction * label_height
+                            else:
+                                direction = preferred_direction
+                                offset = direction * (abs(offset) + label_height)
                     else:
-                        offset = -(abs(offset) + label_height)
-                        direction = 1
+                        # Middle region - alternate between up and down
+                        if direction > 0:
+                            offset = abs(offset) + label_height
+                            direction = -1
+                        else:
+                            offset = -(abs(offset) + label_height)
+                            direction = 1
                 else:
                     final_y = test_y
         
@@ -394,7 +558,14 @@ class ImageAnnotator:
         # Store this label position
         label_positions[side].append((label_x, final_y))
         
-        arrow_start = (label_x, final_y)
+        # Adjust arrow start point based on side
+        if side == 'left':
+            # Arrow starts from right edge of label
+            arrow_start = (label_x + label_width, final_y)
+        else:
+            # Arrow starts from left edge of label
+            arrow_start = (label_x, final_y)
+        
         return arrow_start, bend_point
     
     def _draw_bent_arrow(self, draw: ImageDraw, arrow_start: Tuple[int, int], bend_point: Tuple[int, int], arrow_end: Tuple[int, int]):
@@ -436,7 +607,8 @@ class ImageAnnotator:
     
     def _post_process_crop_with_top_adjustment(self, img: Image, label_positions: Dict, numbered_regions: List[Dict],
                                                original_width: int, original_height: int, 
-                                               left_expansion: int, right_expansion: int, vertical_expansion: int) -> Image:
+                                               left_expansion: int, right_expansion: int, vertical_expansion: int, 
+                                               debug_border: bool = False) -> Image:
         """
         Post-process to crop the image with smart top adjustment based on label positions
         """
@@ -508,7 +680,7 @@ class ImageAnnotator:
             return img
     
     def _draw_label_box(self, draw: ImageDraw, position: Tuple[int, int], text: str, font: Optional[ImageFont.ImageFont]):
-        x, y = position
+        x, y = position  # This is the arrow start position
         
         # Use the provided font or get a default size font from font manager
         if font is None:
@@ -517,7 +689,8 @@ class ImageAnnotator:
         # Calculate text size
         if font:
             try:
-                bbox = draw.textbbox((x, y), text, font=font)
+                # Use (0,0) for measurement to get actual size
+                bbox = draw.textbbox((0, 0), text, font=font)
                 text_width = bbox[2] - bbox[0]
                 text_height = bbox[3] - bbox[1]
             except Exception as e:
@@ -529,23 +702,29 @@ class ImageAnnotator:
             text_width = len(text) * 8
             text_height = 12
         
-        # Draw background box
+        # Adjust Y position so arrow comes from the center of the label box
         padding = 5
+        total_box_height = text_height + (padding * 2)
+        
+        # Center the label vertically around the arrow position
+        label_y = y - (total_box_height // 2) + padding  # Adjust so arrow is at box center
+        
+        # Draw background box
         box_coords = [
             x - padding,
-            y - padding,
+            label_y - padding,
             x + text_width + padding,
-            y + text_height + padding
+            label_y + text_height + padding
         ]
         draw.rectangle(box_coords, fill='white', outline='red', width=2)
         
         # Draw text with proper Unicode font support
         try:
             if font:
-                draw.text((x, y), text, fill='black', font=font)
+                draw.text((x, label_y), text, fill='black', font=font)
             else:
                 # Use PIL default font as last resort
-                draw.text((x, y), text, fill='black')
+                draw.text((x, label_y), text, fill='black')
         except Exception as e:
             logger.warning(f"Failed to draw text '{text}': {e}")
             # Fallback: try to draw just the number part

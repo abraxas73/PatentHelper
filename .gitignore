@@ -55,6 +55,8 @@ data/
 tests/test_data/
 tests/*.png
 tests/*.pdf
+tests/results/
+tests/test_output/
 test_patent_diagram.png
 *.pdf
 *.jpg

@@ -1,0 +1,33 @@
+{
+  "pdf_file": "tests/drawing_sample.pdf",
+  "extracted_images": 4,
+  "number_mappings": 28,
+  "annotated_images": 2,
+  "processing_time": 27.039106130599976,
+  "images": [
+    {
+      "page": 1,
+      "path": "test_output/images/page_0_1.png",
+      "size": "1015x1551",
+      "figure_number": "N/A"
+    },
+    {
+      "page": 2,
+      "path": "test_output/images/page_1_2.png",
+      "size": "1190x1684",
+      "figure_number": "N/A"
+    },
+    {
+      "page": 3,
+      "path": "test_output/images/page_2_3.png",
+      "size": "677x1202",
+      "figure_number": "N/A"
+    },
+    {
+      "page": 4,
+      "path": "test_output/images/page_3_4.png",
+      "size": "728x1645",
+      "figure_number": "N/A"
+    }
+  ]
+}
