@@ -626,7 +626,7 @@ export default {
       }, 1000)
       
       // Start status check for this job
-      startStatusCheck()
+      checkJobStatus()
       
       // Set file info if available
       if (job.fileName || job.filename) {
