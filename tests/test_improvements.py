@@ -107,3 +107,6 @@ def test_improvements():
 
 if __name__ == "__main__":
     test_improvements()
+
+
+### python test_pdf_cli.py drawing_sample.pdf --o results --verbose    
