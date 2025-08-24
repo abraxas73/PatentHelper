@@ -45,14 +45,20 @@ aws ecr describe-repositories --repository-names $ECR_REPO_NAME --region $AWS_RE
     aws ecr create-repository --repository-name $ECR_REPO_NAME --region $AWS_REGION
 
 # Login to ECR
-aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_URI
+aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
 # Copy app directory to ECS folder for Docker build
-cp -r ../app ecs/
-cp -r ecs/processor/main.py ecs/processor/main.py.bak 2>/dev/null || true
+echo "Copying app directory to ECS folder..."
+if [ -d "../app" ]; then
+    cp -r ../app ecs/
+else
+    echo -e "${RED}❌ Error: ../app directory not found${NC}"
+    exit 1
+fi
 
 # Build and push Docker image (for AMD64 architecture)
 cd ecs
+echo "Building Docker image for AMD64..."
 docker build --platform linux/amd64 -t $ECR_REPO_NAME .
 docker tag $ECR_REPO_NAME:latest $ECR_URI:latest
 docker push $ECR_URI:latest
@@ -64,14 +70,18 @@ cd ..
 echo -e "${YELLOW}📦 Step 2: Package Lambda functions${NC}"
 
 # Package each Lambda function
-for func in upload status result ocr-trigger; do
-    echo "Packaging $func..."
-    cd lambda/$func
-    if [ -f requirements.txt ]; then
-        pip install -r requirements.txt -t .
+for func in upload status result ocr-trigger history; do
+    if [ -d "lambda/$func" ]; then
+        echo "Packaging $func..."
+        cd lambda/$func
+        if [ -f requirements.txt ]; then
+            pip install -r requirements.txt -t . --quiet
+        fi
+        zip -r9 ../$func.zip . -q
+        cd ../..
+    else
+        echo -e "${YELLOW}⚠ Skipping $func - directory not found${NC}"
     fi
-    zip -r9 ../$func.zip .
-    cd ../..
 done
 
 echo -e "${YELLOW}🏗️ Step 3: Deploy SAM template${NC}"
@@ -79,12 +89,29 @@ echo -e "${YELLOW}🏗️ Step 3: Deploy SAM template${NC}"
 # Build SAM application using Docker (to avoid local Python version issues)
 sam build --template infrastructure/template.yaml --use-container
 
+# Get AWS Account ID for S3 bucket
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+SAM_BUCKET="sam-deployments-${ACCOUNT_ID}-${AWS_REGION}"
+
+# Create SAM deployment bucket if it doesn't exist
+if ! aws s3api head-bucket --bucket "$SAM_BUCKET" 2>/dev/null; then
+    echo "Creating SAM deployment bucket: $SAM_BUCKET"
+    if [ "$AWS_REGION" = "us-east-1" ]; then
+        aws s3api create-bucket --bucket "$SAM_BUCKET" --region "$AWS_REGION"
+    else
+        aws s3api create-bucket --bucket "$SAM_BUCKET" --region "$AWS_REGION" \
+            --create-bucket-configuration LocationConstraint="$AWS_REGION"
+    fi
+fi
+
 # Deploy SAM application
 sam deploy \
     --stack-name $STACK_NAME \
+    --s3-bucket $SAM_BUCKET \
     --parameter-overrides Environment=$ENVIRONMENT \
-    --capabilities CAPABILITY_IAM \
+    --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
     --region $AWS_REGION \
+    --no-fail-on-empty-changeset \
     --confirm-changeset
 
 # Get stack outputs
@@ -105,12 +132,13 @@ FRONTEND_BUCKET=$(aws cloudformation describe-stacks \
 
 echo -e "${YELLOW}🎨 Step 4: Build and deploy frontend${NC}"
 
-# Copy serverless-specific files
-cp frontend/App-serverless.vue ../front/src/App.vue
-cp frontend/config.js ../front/src/config.js
-
-# Update API URL in config
-sed -i "" "s|https://api.patent-drawing.sncbears.cloud|$API_URL|g" ../front/src/config.js
+# Update frontend config with API URL
+echo "Updating frontend configuration..."
+cat > ../front/src/config.js <<EOF
+export default {
+  API_URL: '${API_URL}'
+}
+EOF
 
 # Build frontend
 cd ../front

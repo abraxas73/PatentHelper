@@ -195,7 +195,9 @@ Resources:
             - Effect: Allow
               Action:
                 - ecs:RunTask
-              Resource: !Ref OCRTaskDefinition
+              Resource: 
+                - !Ref OCRTaskDefinition
+                - !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/patent-helper-ocr-${Environment}:*'
             - Effect: Allow
               Action:
                 - iam:PassRole

@@ -60,9 +60,8 @@ else
 fi
 
 # Build SAM application first (use container to avoid Python version issues)
-cd infrastructure
 echo "Building SAM application (using Docker container)..."
-sam build --template-file template.yaml --use-container
+sam build --template-file infrastructure/template.yaml --use-container
 
 # Deploy SAM application
 echo "Deploying SAM application..."
@@ -72,7 +71,7 @@ sam deploy \
     --s3-bucket $SAM_BUCKET \
     --region $REGION \
     --parameter-overrides Environment=$ENVIRONMENT \
-    --capabilities CAPABILITY_IAM \
+    --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
     --no-fail-on-empty-changeset \
     --no-confirm-changeset
 
@@ -111,7 +110,7 @@ echo "CloudFront URL: $CLOUDFRONT_URL"
 # Step 2: Build and deploy frontend
 echo -e "${YELLOW}📦 Step 2: Build Frontend${NC}"
 
-cd ../..
+cd ..
 cd front
 
 # Update config.js with API URL
