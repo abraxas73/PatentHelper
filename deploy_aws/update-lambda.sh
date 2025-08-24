@@ -35,27 +35,80 @@ aws lambda update-function-code \
     --zip-file fileb://../upload.zip \
     --region $REGION > /dev/null
 
+# Function to wait for Lambda to be ready
+wait_for_lambda_ready() {
+    local function_name=$1
+    local max_attempts=30
+    local attempt=1
+    
+    echo -e "${YELLOW}⏳ Waiting for Lambda function $function_name to be ready...${NC}"
+    
+    while [ $attempt -le $max_attempts ]; do
+        state=$(aws lambda get-function --function-name $function_name --region $REGION --query 'Configuration.State' --output text 2>/dev/null || echo "Unknown")
+        last_update=$(aws lambda get-function --function-name $function_name --region $REGION --query 'Configuration.LastUpdateStatus' --output text 2>/dev/null || echo "Unknown")
+        
+        if [ "$state" = "Active" ] && [ "$last_update" = "Successful" ]; then
+            echo -e "${GREEN}✓ Lambda function is ready${NC}"
+            return 0
+        elif [ "$last_update" = "InProgress" ]; then
+            echo -e "${YELLOW}  Update in progress... waiting (attempt $attempt/$max_attempts)${NC}"
+            sleep 5
+        else
+            # Try anyway if state is unclear
+            return 0
+        fi
+        
+        attempt=$((attempt + 1))
+    done
+    
+    echo -e "${RED}❌ Timeout waiting for Lambda to be ready${NC}"
+    return 1
+}
+
 # Update Upload Lambda environment variables for direct ECS execution
 echo -e "${YELLOW}🔧 Updating Upload Lambda configuration...${NC}"
+
+# Wait for Lambda to be ready first
+wait_for_lambda_ready $UPLOAD_FUNCTION
+
 # Get existing VPC resources
 SUBNET_ID=$(aws ec2 describe-subnets --filters "Name=tag:aws:cloudformation:stack-name,Values=*patent*" --query "Subnets[0].SubnetId" --output text --region $REGION 2>/dev/null || echo "")
 SG_ID=$(aws ec2 describe-security-groups --filters "Name=tag:aws:cloudformation:stack-name,Values=*patent*" --query "SecurityGroups[0].GroupId" --output text --region $REGION 2>/dev/null || echo "")
 
 if [ ! -z "$SUBNET_ID" ] && [ ! -z "$SG_ID" ]; then
-    aws lambda update-function-configuration \
-        --function-name $UPLOAD_FUNCTION \
-        --environment "Variables={
-            BUCKET_NAME=patent-helper-documents-${ENVIRONMENT},
-            TABLE_NAME=patent-helper-jobs-${ENVIRONMENT},
-            QUEUE_URL=https://sqs.${REGION}.amazonaws.com/$(aws sts get-caller-identity --query Account --output text)/patent-helper-processing-${ENVIRONMENT},
-            CLUSTER_NAME=patent-helper-cluster-${ENVIRONMENT},
-            TASK_DEFINITION=patent-helper-ocr-${ENVIRONMENT},
-            SUBNET_IDS=$SUBNET_ID,
-            SECURITY_GROUP_ID=$SG_ID
-        }" \
-        --timeout 30 \
-        --region $REGION > /dev/null
-    echo -e "${GREEN}✓ Upload Lambda configuration updated${NC}"
+    # Retry logic for configuration update
+    max_retries=3
+    retry_count=0
+    update_success=false
+    
+    while [ $retry_count -lt $max_retries ] && [ "$update_success" = "false" ]; do
+        if aws lambda update-function-configuration \
+            --function-name $UPLOAD_FUNCTION \
+            --environment "Variables={
+                BUCKET_NAME=patent-helper-documents-${ENVIRONMENT},
+                TABLE_NAME=patent-helper-jobs-${ENVIRONMENT},
+                QUEUE_URL=https://sqs.${REGION}.amazonaws.com/$(aws sts get-caller-identity --query Account --output text)/patent-helper-processing-${ENVIRONMENT},
+                CLUSTER_NAME=patent-helper-cluster-${ENVIRONMENT},
+                TASK_DEFINITION=patent-helper-ocr-${ENVIRONMENT},
+                SUBNET_IDS=$SUBNET_ID,
+                SECURITY_GROUP_ID=$SG_ID
+            }" \
+            --timeout 30 \
+            --region $REGION > /dev/null 2>&1; then
+            update_success=true
+            echo -e "${GREEN}✓ Upload Lambda configuration updated${NC}"
+        else
+            retry_count=$((retry_count + 1))
+            if [ $retry_count -lt $max_retries ]; then
+                echo -e "${YELLOW}  Configuration update failed, retrying in 10 seconds... (attempt $retry_count/$max_retries)${NC}"
+                sleep 10
+                wait_for_lambda_ready $UPLOAD_FUNCTION
+            else
+                echo -e "${RED}❌ Failed to update configuration after $max_retries attempts${NC}"
+                echo -e "${YELLOW}  You can retry the script later or update manually${NC}"
+            fi
+        fi
+    done
 else
     echo -e "${YELLOW}⚠ Could not find VPC resources - skipping configuration update${NC}"
 fi
