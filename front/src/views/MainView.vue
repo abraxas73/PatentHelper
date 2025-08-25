@@ -310,13 +310,12 @@
       <div class="results-header">
         <h2 class="results-title">추출된 도면</h2>
         <div class="results-count">총 {{ images.length }}개</div>
-        <div class="pdf-download-buttons">
+        <div class="pdf-download-buttons" v-if="annotatedPdfUrl">
           <button 
-            @click="generatePDF()" 
+            @click="downloadPdf()" 
             class="btn btn-pdf"
-            :disabled="isGeneratingPDF"
           >
-            📝 주석 PDF 다운로드
+            📄 어노테이션된 PDF 다운로드
           </button>
         </div>
       </div>
@@ -1297,6 +1296,26 @@ export default {
       })
     }
 
+    const downloadPdf = () => {
+      if (!annotatedPdfUrl.value) {
+        errorMessage.value = 'PDF 파일을 찾을 수 없습니다.'
+        return
+      }
+      
+      // Create a temporary anchor element to trigger download
+      const link = document.createElement('a')
+      link.href = annotatedPdfUrl.value
+      
+      // Extract filename from URL or use default
+      const urlParts = annotatedPdfUrl.value.split('/')
+      const filename = urlParts[urlParts.length - 1] || 'annotated.pdf'
+      link.download = filename
+      
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    }
+
     const trackProcessingJob = (job) => {
       // Hide history modal
       showHistory.value = false
@@ -1407,6 +1426,8 @@ export default {
       startNewTask,
       reworkTask,
       goHome,
+      downloadPdf,
+      annotatedPdfUrl,
       savedMappings,
       isReworkMode,
       selectedResultTab
