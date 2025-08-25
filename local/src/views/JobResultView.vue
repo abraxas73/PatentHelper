@@ -192,7 +192,15 @@ const getImageUrl = (image) => {
     if (image.url) {
       return image.url
     }
-    // If it's an object but no url, try to get key or filename
+    // Handle local images with file_path or filename
+    if (image.file_path) {
+      const filename = image.file_path.includes('/') ? image.file_path.split('/').pop() : image.file_path
+      return `${API_BASE_URL}/images/${filename}`
+    }
+    if (image.filename) {
+      return `${API_BASE_URL}/images/${image.filename}`
+    }
+    // If it's an object but no url, try to get key
     if (image.key) {
       const filename = image.key.includes('/') ? image.key.split('/').pop() : image.key
       return `${API_BASE_URL}/images/${filename}`
@@ -213,16 +221,18 @@ const getImageUrl = (image) => {
 }
 
 const getImageName = (image) => {
-  // If image is an object with filename property, use it
-  if (typeof image === 'object' && image.filename) {
-    return image.filename
+  // If image is an object
+  if (typeof image === 'object' && image !== null) {
+    // Check various property names
+    if (image.filename) return image.filename
+    if (image.file_path) return image.file_path.split('/').pop()
+    if (image.key) return image.key.split('/').pop()
   }
-  // If image is an object with key property, extract filename from it
-  if (typeof image === 'object' && image.key) {
-    return image.key.split('/').pop()
+  // Otherwise assume it's a string
+  if (typeof image === 'string') {
+    return image.split('/').pop()
   }
-  // Otherwise assume it's a string key
-  return image.split('/').pop()
+  return 'unknown.png'
 }
 
 const openModal = (image) => {

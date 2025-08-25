@@ -18,7 +18,7 @@
     <!-- Upload Section -->
     <div class="upload-section">
       <div 
-        v-if="!isCompleted"
+        v-if="!isCompleted && !showMappings && !isReworkMode"
         class="upload-area"
         :class="{ dragover: isDragging }"
         @drop="handleDrop"
@@ -40,14 +40,19 @@
       </div>
 
       <!-- Completed Message -->
-      <div v-else class="completed-area">
+      <div v-else-if="isCompleted" class="completed-area">
         <div class="completion-icon">✅</div>
         <div class="completion-text">도면 추출이 완료되었습니다!</div>
         <div class="completion-file">{{ selectedFile?.name || uploadedFile?.name }}</div>
       </div>
 
-      <!-- File Info -->
-      <div v-if="selectedFile && !isCompleted" class="file-info">
+      <!-- File Info for analysis/rework mode -->
+      <div v-else-if="(showMappings || isReworkMode) && selectedFile" class="file-info-compact">
+        <div class="file-name">📄 {{ selectedFile.name }}</div>
+      </div>
+
+      <!-- File Info with delete button (only when not in mapping/rework mode) -->
+      <div v-if="selectedFile && !isCompleted && !showMappings && !isReworkMode" class="file-info">
         <div>
           <div class="file-name">{{ selectedFile.name }}</div>
           <div class="file-size">{{ formatFileSize(selectedFile.size) }}</div>
@@ -1588,6 +1593,21 @@ export default {
   flex: 1;
 }
 
+/* Compact file info for analysis/rework mode */
+.file-info-compact {
+  text-align: center;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.file-info-compact .file-name {
+  font-size: 14px;
+  color: #4a5568;
+  font-weight: 500;
+}
+
 /* Mapping Section Styles */
 .mapping-section {
   margin-top: 30px;
@@ -1936,22 +1956,21 @@ export default {
 .home-button {
   position: absolute;
   left: 20px;
-  top: 50%;
-  transform: translateY(-50%);
+  top: 20px;
   background: rgba(255, 255, 255, 0.2);
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  border: 2px solid white;
   color: white;
   padding: 10px 20px;
   border-radius: 8px;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.2s;
+  backdrop-filter: blur(10px);
 }
 
 .home-button:hover {
   background: rgba(255, 255, 255, 0.3);
-  transform: translateY(-50%) translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transform: translateY(-2px);
 }
 </style>
