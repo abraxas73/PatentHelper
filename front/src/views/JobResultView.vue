@@ -90,7 +90,12 @@
 
         <!-- Annotated Images -->
         <div v-if="jobData.annotatedImages && jobData.annotatedImages.length > 0" class="annotated-section">
-          <h3>어노테이션 도면</h3>
+          <div class="section-header">
+            <h3>어노테이션 도면</h3>
+            <button v-if="jobData.annotatedPdf" @click="downloadPdf" class="btn-pdf-download">
+              📄 PDF 다운로드
+            </button>
+          </div>
           <div class="image-grid">
             <div v-for="(image, index) in jobData.annotatedImages" :key="'annotated-' + index" class="image-card">
               <div class="image-wrapper">
@@ -256,6 +261,28 @@ const getJobFilename = (job) => {
 
 const goBack = () => {
   router.push('/')
+}
+
+const downloadPdf = () => {
+  if (!jobData.value || !jobData.value.annotatedPdf) {
+    console.error('PDF URL not found')
+    return
+  }
+  
+  // Create PDF URL
+  const pdfUrl = `${API_BASE_URL}/images/${jobData.value.annotatedPdf}`
+  
+  // Create a temporary anchor element to trigger download
+  const link = document.createElement('a')
+  link.href = pdfUrl
+  
+  // Extract filename from URL or use default
+  const filename = jobData.value.annotatedPdf.split('/').pop() || 'annotated.pdf'
+  link.download = filename
+  
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
 }
 
 const loadJobResult = async () => {
@@ -547,7 +574,36 @@ onUnmounted(() => {
   font-size: 20px;
   font-weight: 600;
   color: #2d3748;
+  margin: 0;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 20px;
+}
+
+.btn-pdf-download {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+}
+
+.btn-pdf-download:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.btn-pdf-download:active {
+  transform: translateY(0);
 }
 
 .mappings-section {
