@@ -2,6 +2,7 @@
   <div class="container">
     <!-- Image Modal -->
     <ImageModal 
+      v-if="selectedImage"
       :isOpen="modalOpen"
       :image="selectedImage"
       @close="closeModal"
@@ -71,15 +72,20 @@
           @click="processWithMappings"
         >
           <span v-if="isProcessing" class="loading"></span>
+          <span v-else-if="isReworkMode">작업 실행</span>
           <span v-else>작업 시작</span>
         </button>
         <button 
-          v-else
+          v-else-if="!annotatedImages.length"
           class="btn btn-success"
           @click="startNewTask"
         >
           새 작업
         </button>
+        <div v-else class="action-buttons-inline">
+          <button class="btn btn-primary" @click="startNewTask">새 작업</button>
+          <button class="btn btn-secondary" @click="reworkTask">재작업</button>
+        </div>
         <span v-if="isProcessing" class="processing-time">
           처리 중... {{ processingTime }}초
         </span>
@@ -116,6 +122,65 @@
     <!-- Mapping Section -->
     <div v-if="showMappings" class="mapping-section">
       <h2>매핑 정보 편집</h2>
+      
+      <!-- Show previous results in rework mode -->
+      <div v-if="isReworkMode && (images.length > 0 || annotatedImages.length > 0)" class="previous-results">
+        <div class="results-tabs">
+          <button 
+            @click="selectedResultTab = 'original'" 
+            :class="['tab', selectedResultTab === 'original' ? 'active' : '']"
+          >
+            추출된 도면 ({{ images.length }})
+          </button>
+          <button 
+            @click="selectedResultTab = 'annotated'" 
+            :class="['tab', selectedResultTab === 'annotated' ? 'active' : '']"
+            v-if="annotatedImages.length > 0"
+          >
+            어노테이션 도면 ({{ annotatedImages.length }})
+          </button>
+        </div>
+        
+        <!-- Original images tab -->
+        <div v-if="selectedResultTab === 'original'" class="image-grid">
+          <div v-for="(image, index) in images" :key="index" class="image-card">
+            <div class="image-wrapper">
+              <img 
+                :src="image.url" 
+                :alt="`Drawing ${index + 1}`"
+                @click="openModal(image)"
+                style="cursor: pointer;"
+              />
+            </div>
+            <div class="image-info">
+              <div class="image-title">도면 {{ index + 1 }}</div>
+              <div class="image-meta">
+                <span class="badge badge-original">원본</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Annotated images tab -->
+        <div v-if="selectedResultTab === 'annotated' && annotatedImages.length > 0" class="image-grid">
+          <div v-for="(image, index) in annotatedImages" :key="'annotated-' + index" class="image-card">
+            <div class="image-wrapper">
+              <img 
+                :src="image.url" 
+                :alt="`Annotated ${index + 1}`"
+                @click="openModal(image)"
+                style="cursor: pointer;"
+              />
+            </div>
+            <div class="image-info">
+              <div class="image-title">어노테이션 {{ index + 1 }}</div>
+              <div class="image-meta">
+                <span class="badge badge-annotated">어노테이션</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
       
       <!-- Mapping Table - 2 Column Layout -->
       <div class="mapping-table-container">
@@ -193,27 +258,29 @@
       
       <!-- Add New Mapping -->
       <div class="add-mapping">
-        <h3>새 매핑 추가</h3>
-        <div class="add-mapping-form">
-          <input 
-            type="text" 
-            v-model="newMapping.number" 
-            placeholder="번호 (예: 100, 156a)"
-            class="input-number"
-          />
-          <input 
-            type="text" 
-            v-model="newMapping.label" 
-            placeholder="명칭 (예: 전원 버튼)"
-            class="input-label"
-          />
-          <button 
-            @click="addMapping" 
-            :disabled="!newMapping.number || !newMapping.label"
-            class="btn btn-success"
-          >
-            추가
-          </button>
+        <div class="add-mapping-inline">
+          <h3>새 매핑 추가</h3>
+          <div class="add-mapping-form">
+            <input 
+              type="text" 
+              v-model="newMapping.number" 
+              placeholder="번호 (예: 100, 156a)"
+              class="input-number"
+            />
+            <input 
+              type="text" 
+              v-model="newMapping.label" 
+              placeholder="명칭 (예: 전원 버튼)"
+              class="input-label"
+            />
+            <button 
+              @click="addMapping" 
+              :disabled="!newMapping.number || !newMapping.label"
+              class="btn btn-success"
+            >
+              추가
+            </button>
+          </div>
         </div>
       </div>
       
@@ -233,21 +300,14 @@
       </div>
     </div>
 
-    <!-- Results Section -->
-    <div v-if="images.length > 0" class="results-section">
+    <!-- Results Section - Show only when not in mapping mode -->
+    <div v-if="images.length > 0 && !showMappings" class="results-section">
       <div class="results-header">
         <h2 class="results-title">추출된 도면</h2>
         <div class="results-count">총 {{ images.length }}개</div>
         <div class="pdf-download-buttons">
           <button 
-            @click="generatePDF('combined')" 
-            class="btn btn-pdf"
-            :disabled="isGeneratingPDF"
-          >
-            📄 통합 PDF 다운로드
-          </button>
-          <button 
-            @click="generatePDF('annotated')" 
+            @click="generatePDF()" 
             class="btn btn-pdf"
             :disabled="isGeneratingPDF"
           >
@@ -280,8 +340,8 @@
         </div>
       </div>
 
-      <!-- Annotated Images -->
-      <div v-if="annotatedImages.length > 0" class="annotated-section">
+      <!-- Annotated Images - Show only when not in mapping mode -->
+      <div v-if="annotatedImages.length > 0 && !showMappings" class="annotated-section">
         <h3>어노테이션 도면</h3>
         <div class="image-grid">
           <div 
@@ -370,7 +430,7 @@
 </template>
 
 <script>
-import { ref, computed, onUnmounted, onMounted } from 'vue'
+import { ref, computed, onUnmounted, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import ImageModal from '../ImageModal.vue'
@@ -393,7 +453,7 @@ export default {
     const successMessage = ref('')
     const numberMappings = ref({})
     const modalOpen = ref(false)
-    const selectedImage = ref(null)
+    const selectedImage = ref(null)  // null is ok, v-if handles it
     const processingTime = ref(0)
     const processingTimer = ref(null)
     const progressMessage = ref('')
@@ -416,6 +476,9 @@ export default {
     const detectedNumbers = ref([])
     const editableMappings = ref([])
     const newMapping = ref({ number: '', label: '' })
+    const savedMappings = ref([])  // 재작업을 위한 매핑 정보 저장
+    const isReworkMode = ref(false)  // 재작업 모드 플래그
+    const selectedResultTab = ref('original')  // 재작업 모드에서 결과 탭 선택
 
     const jobStatusText = computed(() => {
       const statusMap = {
@@ -692,6 +755,15 @@ export default {
     }
 
     const processWithMappings = async () => {
+      // 매핑 정보 저장 (재작업을 위해)
+      savedMappings.value = [...editableMappings.value]
+      
+      // 재작업 모드인 경우 이전 결과 초기화
+      if (isReworkMode.value) {
+        // 어노테이션 이미지만 초기화 (원본 이미지는 유지)
+        annotatedImages.value = []
+      }
+      
       isProcessing.value = true
       errorMessage.value = ''
       successMessage.value = ''
@@ -824,7 +896,7 @@ export default {
       return `${config.API_URL}/images/${filename}`
     }
 
-    const generatePDF = async (pdfType) => {
+    const generatePDF = async () => {
       if (!uploadedFile.value && !selectedFile.value) {
         errorMessage.value = 'PDF 파일이 없습니다.'
         return
@@ -836,10 +908,10 @@ export default {
       try {
         const filename = uploadedFile.value?.name || selectedFile.value?.name
         
-        // Request PDF generation
+        // Request PDF generation (annotated only)
         const response = await axios.post(`${config.API_URL}/generate-pdf`, {
           pdf_filename: filename,
-          pdf_type: pdfType
+          pdf_type: 'annotated'
         })
 
         if (response.data.filename) {
@@ -854,7 +926,7 @@ export default {
           link.click()
           document.body.removeChild(link)
           
-          successMessage.value = `${pdfType === 'combined' ? '통합' : '주석'} PDF가 생성되었습니다.`
+          successMessage.value = '주석 PDF가 생성되었습니다.'
         }
       } catch (error) {
         console.error('PDF generation error:', error)
@@ -978,8 +1050,60 @@ export default {
     }
 
     const startNewTask = () => {
-      // Reload the page to start fresh
-      window.location.href = '/'
+      // Reset all states for new task
+      uploadedFile.value = null
+      images.value = []
+      annotatedImages.value = []
+      editableMappings.value = []
+      savedMappings.value = []
+      detectedNumbers.value = []
+      extractedImages.value = []
+      showMappings.value = false
+      isReworkMode.value = false
+      errorMessage.value = ''
+      successMessage.value = ''
+      isProcessing.value = false
+      isCompleted.value = false
+      processingTime.value = 0
+      progressMessage.value = ''
+      progress.value = 0
+      currentJobId.value = null
+      jobStatus.value = ''
+      jobMessage.value = ''
+      jobProgress.value = 0
+      modalOpen.value = false
+      selectedImage.value = null
+      showHistory.value = false
+      isGeneratingPDF.value = false
+      
+      // Clear timer if exists
+      if (processingTimer.value) {
+        clearInterval(processingTimer.value)
+        processingTimer.value = null
+      }
+    }
+    
+    const reworkTask = () => {
+      // 재작업: 이전 매핑 정보와 이미지를 유지하면서 분석 화면으로 돌아가기
+      if (savedMappings.value.length > 0) {
+        // 저장된 매핑 정보 복원
+        editableMappings.value = [...savedMappings.value]
+      }
+      
+      // 재작업 모드 설정
+      isReworkMode.value = true
+      showMappings.value = true
+      isCompleted.value = false  // 완료 상태 초기화
+      successMessage.value = ''
+      errorMessage.value = ''
+      
+      // 스크롤을 매핑 섹션으로 이동
+      nextTick(() => {
+        const mappingSection = document.querySelector('.mapping-section')
+        if (mappingSection) {
+          mappingSection.scrollIntoView({ behavior: 'smooth' })
+        }
+      })
     }
 
     const trackProcessingJob = (job) => {
@@ -1083,7 +1207,11 @@ export default {
       getStatusText,
       getJobFilename,
       trackProcessingJob,
-      startNewTask
+      startNewTask,
+      reworkTask,
+      savedMappings,
+      isReworkMode,
+      selectedResultTab
     }
   }
 }
@@ -1591,16 +1719,25 @@ export default {
   border-radius: 6px;
 }
 
-.add-mapping h3 {
-  margin-bottom: 10px;  /* Reduced from 15px */
+.add-mapping-inline {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.add-mapping-inline h3 {
+  margin: 0;
   font-size: 14px;  /* Reduced from 16px */
   color: #334155;
+  white-space: nowrap;
+  min-width: fit-content;
 }
 
 .add-mapping-form {
   display: flex;
   gap: 10px;
   align-items: center;
+  flex: 1;
 }
 
 .add-mapping-form .input-number {
@@ -1612,7 +1749,7 @@ export default {
 }
 
 .add-mapping-form .input-label {
-  flex: 1;
+  width: 250px;  /* Fixed width instead of flex: 1 */
   padding: 4px 8px;  /* Reduced from 8px 12px */
   border: 1px solid #e2e8f0;
   border-radius: 4px;
@@ -1668,5 +1805,133 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Annotated section header styles */
+.annotated-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.annotated-header h3 {
+  margin: 0;
+  font-size: 20px;
+  color: #1f2937;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.action-buttons .btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.action-buttons .btn-primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.action-buttons .btn-primary:hover {
+  background: #2563eb;
+}
+
+.action-buttons .btn-secondary {
+  background: #6b7280;
+  color: white;
+}
+
+.action-buttons .btn-secondary:hover {
+  background: #4b5563;
+}
+
+/* Inline action buttons for top section */
+.action-buttons-inline {
+  display: inline-flex;
+  gap: 10px;
+}
+
+.action-buttons-inline .btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.action-buttons-inline .btn-primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.action-buttons-inline .btn-primary:hover {
+  background: #2563eb;
+}
+
+.action-buttons-inline .btn-secondary {
+  background: #6b7280;
+  color: white;
+}
+
+.action-buttons-inline .btn-secondary:hover {
+  background: #4b5563;
+}
+
+/* Previous results in rework mode */
+.previous-results {
+  margin-bottom: 30px;
+  padding: 20px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.previous-results h3 {
+  margin-bottom: 15px;
+  font-size: 16px;
+  color: #1f2937;
+}
+
+.results-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.results-tabs .tab {
+  padding: 10px 20px;
+  background: none;
+  border: none;
+  color: #718096;
+  font-weight: 600;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.3s ease;
+}
+
+.results-tabs .tab.active {
+  color: #667eea;
+}
+
+.results-tabs .tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #667eea;
 }
 </style>
