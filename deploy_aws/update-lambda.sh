@@ -25,6 +25,9 @@ STATUS_FUNCTION="patent-helper-status-${ENVIRONMENT}"
 RESULT_FUNCTION="patent-helper-result-${ENVIRONMENT}"
 TRIGGER_FUNCTION="patent-helper-ocr-trigger-${ENVIRONMENT}"
 HISTORY_FUNCTION="patent-helper-history-${ENVIRONMENT}"
+EXTRACT_MAPPINGS_FUNCTION="patent-helper-extract-mappings-${ENVIRONMENT}"
+PROCESS_MAPPINGS_FUNCTION="patent-helper-process-mappings-${ENVIRONMENT}"
+IMAGE_PROXY_FUNCTION="patent-helper-image-proxy-${ENVIRONMENT}"
 
 # Update Upload Lambda
 echo -e "${YELLOW}📦 Updating Upload Lambda...${NC}"
@@ -153,6 +156,36 @@ aws lambda update-function-code \
     --function-name $HISTORY_FUNCTION \
     --zip-file fileb://../history.zip \
     --region $REGION > /dev/null 2>&1 || echo "History function not deployed yet - will be created with SAM deploy"
+cd ../..
+
+# Update Extract Mappings Lambda
+echo -e "${YELLOW}📦 Updating Extract Mappings Lambda...${NC}"
+cd lambda/extract-mappings
+zip -r ../extract-mappings.zip . -x "*.pyc" "__pycache__/*"
+aws lambda update-function-code \
+    --function-name $EXTRACT_MAPPINGS_FUNCTION \
+    --zip-file fileb://../extract-mappings.zip \
+    --region $REGION > /dev/null 2>&1 || echo "Extract Mappings function not deployed yet - will be created with SAM deploy"
+cd ../..
+
+# Update Process Mappings Lambda
+echo -e "${YELLOW}📦 Updating Process Mappings Lambda...${NC}"
+cd lambda/process-mappings
+zip -r ../process-mappings.zip . -x "*.pyc" "__pycache__/*"
+aws lambda update-function-code \
+    --function-name $PROCESS_MAPPINGS_FUNCTION \
+    --zip-file fileb://../process-mappings.zip \
+    --region $REGION > /dev/null 2>&1 || echo "Process Mappings function not deployed yet - will be created with SAM deploy"
+cd ../..
+
+# Update Image Proxy Lambda
+echo -e "${YELLOW}📦 Updating Image Proxy Lambda...${NC}"
+cd lambda/image-proxy
+zip -r ../image-proxy.zip . -x "*.pyc" "__pycache__/*"
+aws lambda update-function-code \
+    --function-name $IMAGE_PROXY_FUNCTION \
+    --zip-file fileb://../image-proxy.zip \
+    --region $REGION > /dev/null 2>&1 || echo "Image Proxy function not deployed yet - will be created with SAM deploy"
 cd ../..
 
 # Clean up zip files
