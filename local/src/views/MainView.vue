@@ -9,6 +9,7 @@
     />
     <!-- Header -->
     <div class="header">
+      <button @click="goHome" class="home-button" title="홈으로">🏠</button>
       <h1>🔬 Patent Drawing Helper</h1>
       <p>특허 도면 자동 처리 시스템</p>
       <button @click="showHistory = true" class="history-button">📋 작업 이력</button>
@@ -76,16 +77,12 @@
           <span v-else>작업 시작</span>
         </button>
         <button 
-          v-else-if="!annotatedImages.length"
-          class="btn btn-success"
-          @click="startNewTask"
+          v-else-if="annotatedImages.length > 0"
+          class="btn btn-secondary"
+          @click="reworkTask"
         >
-          새 작업
+          재작업
         </button>
-        <div v-else class="action-buttons-inline">
-          <button class="btn btn-primary" @click="startNewTask">새 작업</button>
-          <button class="btn btn-secondary" @click="reworkTask">재작업</button>
-        </div>
         <span v-if="isProcessing" class="processing-time">
           처리 중... {{ processingTime }}초
         </span>
@@ -831,23 +828,17 @@ export default {
         progress.value = 100
         successMessage.value = `도면 처리가 완료되었습니다! (처리 시간: ${processingTime.value}초)`
 
-        // Store in job history
-        const jobData = {
+        // Store in job history using saveToHistory function
+        saveToHistory({
           jobId: 'local-' + Date.now(),
           fileName: uploadedFile.value.name,
           status: 'COMPLETED',
-          timestamp: new Date().toISOString(),
-          results: {
-            extracted_images: extractedImages.value,
-            annotated_images: annotatedImages.value,
-            number_mappings: selectedMappings
-          }
-        }
-        
-        const history = JSON.parse(localStorage.getItem('jobHistory') || '[]')
-        history.unshift(jobData)
-        if (history.length > 50) history.pop()
-        localStorage.setItem('jobHistory', JSON.stringify(history))
+          createdAt: Date.now(),  // Use createdAt instead of timestamp for consistency
+          extractedImages: extractedImages.value,
+          annotatedImages: annotatedImages.value,
+          numberMappings: selectedMappings,
+          processingTime: processingTime.value
+        })
 
       } catch (error) {
         console.error('Processing error:', error)
@@ -1049,6 +1040,11 @@ export default {
       return '파일명 없음'
     }
 
+    const goHome = () => {
+      // 홈으로 이동 (페이지 새로고침)
+      window.location.href = '/'
+    }
+    
     const startNewTask = () => {
       // Reset all states for new task
       uploadedFile.value = null
@@ -1209,6 +1205,7 @@ export default {
       trackProcessingJob,
       startNewTask,
       reworkTask,
+      goHome,
       savedMappings,
       isReworkMode,
       selectedResultTab
@@ -1933,5 +1930,28 @@ export default {
   right: 0;
   height: 2px;
   background: #667eea;
+}
+
+/* Home button styles - matching history button */
+.home-button {
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.home-button:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-50%) translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 </style>
