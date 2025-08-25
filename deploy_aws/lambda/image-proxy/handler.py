@@ -46,8 +46,10 @@ def lambda_handler(event, context):
                     content_type = 'image/png'
                 elif image_key.lower().endswith('.jpg') or image_key.lower().endswith('.jpeg'):
                     content_type = 'image/jpeg'
+                elif image_key.lower().endswith('.pdf'):
+                    content_type = 'application/pdf'
                 else:
-                    content_type = 'image/png'  # default
+                    content_type = 'application/octet-stream'  # default
             
             # Return the image as base64 encoded (API Gateway requirement for binary data)
             return {
