@@ -284,7 +284,7 @@ Resources:
       Environment:
         Variables:
           CLUSTER_NAME: !Ref ECSCluster
-          TASK_DEFINITION: !Ref OCRTaskDefinition
+          TASK_DEFINITION: !Ref ExtractorTaskDefinition
           SUBNET_IDS: !Ref PublicSubnet
           SECURITY_GROUP_ID: !Ref ECSSecurityGroup
       Events:
@@ -357,7 +357,43 @@ Resources:
     Properties:
       ClusterName: !Sub patent-helper-cluster-${Environment}
 
-  # ECS Task Definition
+  # ECS Task Definition for Mapping Extraction (Lightweight)
+  ExtractorTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub patent-helper-extractor-${Environment}
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "1024"  # Reduced CPU for lightweight extraction
+      Memory: "2048"  # Reduced memory for extraction only
+      ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: extractor-processor
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/patent-helper-extractor:latest
+          Essential: true
+          Environment:
+            - Name: BUCKET_NAME
+              Value: !Ref DocumentBucket
+            - Name: QUEUE_URL
+              Value: !Ref ProcessingQueue
+            - Name: TABLE_NAME
+              Value: !Ref JobTable
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ExtractorLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: extractor
+
+  ExtractorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/patent-helper-extractor-${Environment}
+      RetentionInDays: 7
+
+  # ECS Task Definition for OCR Processing (Heavy)
   OCRTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
