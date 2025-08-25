@@ -50,6 +50,7 @@ def lambda_handler(event, context):
             history.append({
                 'jobId': item.get('jobId'),
                 'status': item.get('status'),
+                'processType': item.get('processType'),  # processType 추가
                 'filename': item.get('filename'),
                 'createdAt': item.get('createdAt'),
                 'completedAt': item.get('completedAt'),

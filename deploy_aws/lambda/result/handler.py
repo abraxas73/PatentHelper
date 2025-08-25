@@ -109,6 +109,7 @@ def lambda_handler(event, context):
                 'filename': item.get('filename'),
                 'extractedImages': extracted_images,
                 'annotatedImages': annotated_images,
+                'annotatedPdf': item.get('annotatedPdf'),  # PDF 필드 추가
                 'numberMappings': item.get('numberMappings', {}),
                 'processingTime': item.get('processingTime', 0),
                 'totalPages': item.get('totalPages', 0),
