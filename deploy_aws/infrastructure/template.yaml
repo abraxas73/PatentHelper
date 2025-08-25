@@ -304,7 +304,7 @@ Resources:
               Action:
                 - ecs:RunTask
               Resource:
-                - !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/patent-helper-ocr-${Environment}:*'
+                - !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/patent-helper-extractor-${Environment}:*'
             - Effect: Allow
               Action:
                 - iam:PassRole
