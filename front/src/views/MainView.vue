@@ -2,12 +2,14 @@
   <div class="container">
     <!-- Image Modal -->
     <ImageModal 
+      v-if="selectedImage"
       :isOpen="modalOpen"
       :image="selectedImage"
       @close="closeModal"
     />
     <!-- Header -->
     <div class="header">
+      <button @click="goHome" class="home-button" title="홈으로">🏠</button>
       <h1>🔬 Patent Drawing Helper</h1>
       <p>특허 도면 자동 처리 시스템</p>
       <button @click="showHistory = true" class="history-button">📋 작업 이력</button>
@@ -16,7 +18,7 @@
     <!-- Upload Section -->
     <div class="upload-section">
       <div 
-        v-if="!isCompleted"
+        v-if="!isCompleted && !showMappings && !isReworkMode"
         class="upload-area"
         :class="{ dragover: isDragging }"
         @drop="handleDrop"
@@ -38,14 +40,19 @@
       </div>
 
       <!-- Completed Message -->
-      <div v-else class="completed-area">
+      <div v-else-if="isCompleted" class="completed-area">
         <div class="completion-icon">✅</div>
         <div class="completion-text">도면 추출이 완료되었습니다!</div>
         <div class="completion-file">{{ selectedFile?.name || uploadedFile?.name }}</div>
       </div>
 
-      <!-- File Info -->
-      <div v-if="selectedFile && !isCompleted" class="file-info">
+      <!-- File Info for analysis/rework mode -->
+      <div v-else-if="(showMappings || isReworkMode) && selectedFile" class="file-info-compact">
+        <div class="file-name">📄 {{ selectedFile.name }}</div>
+      </div>
+
+      <!-- File Info with delete button (only when not in mapping/rework mode) -->
+      <div v-if="selectedFile && !isCompleted && !showMappings && !isReworkMode" class="file-info">
         <div>
           <div class="file-name">{{ selectedFile.name }}</div>
           <div class="file-size">{{ formatFileSize(selectedFile.size) }}</div>
@@ -56,20 +63,30 @@
       <!-- Action Buttons -->
       <div class="action-buttons">
         <button 
-          v-if="!isCompleted"
+          v-if="!isCompleted && !showMappings"
           class="btn btn-primary"
           :disabled="!selectedFile || isProcessing"
-          @click="uploadFile"
+          @click="extractMappings"
         >
           <span v-if="isProcessing" class="loading"></span>
-          <span v-else>도면 추출 시작</span>
+          <span v-else>분석</span>
         </button>
         <button 
-          v-else
-          class="btn btn-success"
-          @click="startNewTask"
+          v-if="showMappings && !isCompleted"
+          class="btn btn-primary"
+          :disabled="isProcessing"
+          @click="processWithMappings"
         >
-          새 작업
+          <span v-if="isProcessing" class="loading"></span>
+          <span v-else-if="isReworkMode">작업 실행</span>
+          <span v-else>작업 시작</span>
+        </button>
+        <button 
+          v-else-if="annotatedImages.length > 0"
+          class="btn btn-secondary"
+          @click="reworkTask"
+        >
+          재작업
         </button>
         <span v-if="isProcessing" class="processing-time">
           처리 중... {{ processingTime }}초
@@ -104,11 +121,201 @@
       </div>
     </div>
 
-    <!-- Results Section -->
-    <div v-if="images.length > 0" class="results-section">
+    <!-- Mapping Section -->
+    <div v-if="showMappings" class="mapping-section">
+      <h2>매핑 정보 편집</h2>
+      
+      <!-- Show previous results in rework mode -->
+      <div v-if="isReworkMode && (images.length > 0 || annotatedImages.length > 0)" class="previous-results">
+        <div class="results-tabs">
+          <button 
+            @click="selectedResultTab = 'original'" 
+            :class="['tab', selectedResultTab === 'original' ? 'active' : '']"
+          >
+            추출된 도면 ({{ images.length }})
+          </button>
+          <button 
+            @click="selectedResultTab = 'annotated'" 
+            :class="['tab', selectedResultTab === 'annotated' ? 'active' : '']"
+            v-if="annotatedImages.length > 0"
+          >
+            어노테이션 도면 ({{ annotatedImages.length }})
+          </button>
+        </div>
+        
+        <!-- Original images tab -->
+        <div v-if="selectedResultTab === 'original'" class="image-grid">
+          <div v-for="(image, index) in images" :key="index" class="image-card">
+            <div class="image-wrapper">
+              <img 
+                :src="image.url" 
+                :alt="`Drawing ${index + 1}`"
+                @click="openModal(image)"
+                style="cursor: pointer;"
+              />
+            </div>
+            <div class="image-info">
+              <div class="image-title">도면 {{ index + 1 }}</div>
+              <div class="image-meta">
+                <span class="badge badge-original">원본</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Annotated images tab -->
+        <div v-if="selectedResultTab === 'annotated' && annotatedImages.length > 0" class="image-grid">
+          <div v-for="(image, index) in annotatedImages" :key="'annotated-' + index" class="image-card">
+            <div class="image-wrapper">
+              <img 
+                :src="image.url" 
+                :alt="`Annotated ${index + 1}`"
+                @click="openModal(image)"
+                style="cursor: pointer;"
+              />
+            </div>
+            <div class="image-info">
+              <div class="image-title">어노테이션 {{ index + 1 }}</div>
+              <div class="image-meta">
+                <span class="badge badge-annotated">어노테이션</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Mapping Table - 2 Column Layout -->
+      <div class="mapping-table-container">
+        <div class="mapping-table two-column">
+          <table>
+            <thead>
+              <tr>
+                <th width="40">선택</th>
+                <th width="60">번호</th>
+                <th>명칭</th>
+                <th width="30"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(mapping, index) in editableMappingsFirstHalf" :key="index">
+                <td>
+                  <input 
+                    type="checkbox" 
+                    v-model="mapping.selected"
+                    :disabled="!mapping.label || mapping.label.trim() === ''"
+                  />
+                </td>
+                <td>{{ mapping.number }}</td>
+                <td>
+                  <input 
+                    type="text" 
+                    v-model="mapping.label"
+                    @input="() => { if(mapping.label && mapping.label.trim()) mapping.selected = true; }"
+                    placeholder="명칭 입력"
+                  />
+                </td>
+                <td>
+                  <button @click="removeMapping(editableMappings.indexOf(mapping))" class="btn btn-sm btn-danger btn-icon" title="삭제">×</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="mapping-table two-column">
+          <table>
+            <thead>
+              <tr>
+                <th width="40">선택</th>
+                <th width="60">번호</th>
+                <th>명칭</th>
+                <th width="30"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(mapping, index) in editableMappingsSecondHalf" :key="index">
+                <td>
+                  <input 
+                    type="checkbox" 
+                    v-model="mapping.selected"
+                    :disabled="!mapping.label || mapping.label.trim() === ''"
+                  />
+                </td>
+                <td>{{ mapping.number }}</td>
+                <td>
+                  <input 
+                    type="text" 
+                    v-model="mapping.label"
+                    @input="() => { if(mapping.label && mapping.label.trim()) mapping.selected = true; }"
+                    placeholder="명칭 입력"
+                  />
+                </td>
+                <td>
+                  <button @click="removeMapping(editableMappings.indexOf(mapping))" class="btn btn-sm btn-danger btn-icon" title="삭제">×</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
+      <!-- Add New Mapping -->
+      <div class="add-mapping">
+        <div class="add-mapping-inline">
+          <h3>새 매핑 추가</h3>
+          <div class="add-mapping-form">
+            <input 
+              type="text" 
+              v-model="newMapping.number" 
+              placeholder="번호 (예: 100, 156a)"
+              class="input-number"
+            />
+            <input 
+              type="text" 
+              v-model="newMapping.label" 
+              placeholder="명칭 (예: 전원 버튼)"
+              class="input-label"
+            />
+            <button 
+              @click="addMapping" 
+              :disabled="!newMapping.number || !newMapping.label"
+              class="btn btn-success"
+            >
+              추가
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Extracted Images Preview -->
+      <div class="images-preview">
+        <h3>추출된 도면</h3>
+        <div class="image-grid">
+          <div v-for="img in extractedImages" :key="img.file_path" class="image-item">
+            <img 
+              :src="getImageUrl(img.file_path)" 
+              :alt="img.filename"
+              @click="openModal(img)"
+            />
+            <div class="image-caption">{{ img.filename }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results Section - Show only when not in mapping mode -->
+    <div v-if="images.length > 0 && !showMappings" class="results-section">
       <div class="results-header">
         <h2 class="results-title">추출된 도면</h2>
         <div class="results-count">총 {{ images.length }}개</div>
+        <div class="pdf-download-buttons">
+          <button 
+            @click="generatePDF()" 
+            class="btn btn-pdf"
+            :disabled="isGeneratingPDF"
+          >
+            📝 주석 PDF 다운로드
+          </button>
+        </div>
       </div>
 
       <!-- Image Grid -->
@@ -135,8 +342,8 @@
         </div>
       </div>
 
-      <!-- Annotated Images -->
-      <div v-if="annotatedImages.length > 0" class="annotated-section">
+      <!-- Annotated Images - Show only when not in mapping mode -->
+      <div v-if="annotatedImages.length > 0 && !showMappings" class="annotated-section">
         <h3>어노테이션 도면</h3>
         <div class="image-grid">
           <div 
@@ -225,7 +432,7 @@
 </template>
 
 <script>
-import { ref, computed, onUnmounted, onMounted } from 'vue'
+import { ref, computed, onUnmounted, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import ImageModal from '../ImageModal.vue'
@@ -248,12 +455,13 @@ export default {
     const successMessage = ref('')
     const numberMappings = ref({})
     const modalOpen = ref(false)
-    const selectedImage = ref(null)
+    const selectedImage = ref(null)  // null is ok, v-if handles it
     const processingTime = ref(0)
     const processingTimer = ref(null)
     const progressMessage = ref('')
     const progress = ref(0)
     const isCompleted = ref(false)  // Track if extraction is completed
+    const isGeneratingPDF = ref(false)  // Track PDF generation status
     
     // Serverless specific
     const currentJobId = ref(null)
@@ -264,6 +472,16 @@ export default {
     const showHistory = ref(false)
     const jobHistory = ref([])
 
+    // Mapping related states
+    const showMappings = ref(false)
+    const extractedImages = ref([])
+    const detectedNumbers = ref([])
+    const editableMappings = ref([])
+    const newMapping = ref({ number: '', label: '' })
+    const savedMappings = ref([])  // 재작업을 위한 매핑 정보 저장
+    const isReworkMode = ref(false)  // 재작업 모드 플래그
+    const selectedResultTab = ref('original')  // 재작업 모드에서 결과 탭 선택
+
     const jobStatusText = computed(() => {
       const statusMap = {
         'QUEUED': '대기 중',
@@ -272,6 +490,17 @@ export default {
         'FAILED': '실패'
       }
       return statusMap[jobStatus.value] || jobStatus.value
+    })
+
+    // Split mappings into two columns
+    const editableMappingsFirstHalf = computed(() => {
+      const midpoint = Math.ceil(editableMappings.value.length / 2)
+      return editableMappings.value.slice(0, midpoint)
+    })
+
+    const editableMappingsSecondHalf = computed(() => {
+      const midpoint = Math.ceil(editableMappings.value.length / 2)
+      return editableMappings.value.slice(midpoint)
     })
 
     const handleFileSelect = (event) => {
@@ -326,6 +555,7 @@ export default {
       processingTime.value = 0
       images.value = []
       annotatedImages.value = []
+      uploadedFile.value = selectedFile.value  // Store uploaded file info
 
       // Start timer
       processingTimer.value = setInterval(() => {
@@ -333,72 +563,77 @@ export default {
       }, 1000)
 
       try {
-        if (config.isLocal) {
-          // Local development - use FormData
-          const formData = new FormData()
-          formData.append('file', selectedFile.value)
-          
-          const response = await axios.post(`${config.API_URL}/process`, formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data'
-            },
-            onUploadProgress: (progressEvent) => {
-              const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)
-              progress.value = percentCompleted
+        // Create FormData for local server
+        const formData = new FormData()
+        formData.append('file', selectedFile.value)
+        
+        // Upload file to local server
+        const response = await axios.post(`${config.API_URL}/process`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          },
+          timeout: 300000 // 5 minutes timeout for local processing
+        })
+
+        // Local server returns results directly
+        currentJobId.value = 'local-' + Date.now()
+        jobStatus.value = 'COMPLETED'
+        
+        // Process local server response
+        if (response.data.extracted_images) {
+          images.value = response.data.extracted_images.map(img => {
+            // extracted_images is an array of objects with file_path property
+            if (typeof img === 'object' && img.file_path) {
+              const filename = img.file_path.split('/').pop()
+              return {
+                url: `${config.API_URL}/images/${filename}`,
+                key: filename
+              }
+            }
+            // Fallback for string format
+            const imgPath = typeof img === 'string' ? img : img.toString()
+            const filename = imgPath.includes('/') ? imgPath.split('/').pop() : imgPath
+            return {
+              url: `${config.API_URL}/images/${filename}`,
+              key: filename
             }
           })
-          
-          // Local response format
-          if (response.data.extracted_images) {
-            images.value = response.data.extracted_images.map(img => ({
-              url: `${config.API_URL}/images/${img.filename}`,
-              filename: img.filename,
-              ...img
-            }))
-          }
-          
-          if (response.data.annotated_images) {
-            annotatedImages.value = response.data.annotated_images.map(img => ({
-              url: `${config.API_URL}/images/${img.filename}`,
-              filename: img.filename,
-              ...img
-            }))
-          }
-          
-          numberMappings.value = response.data.number_mappings || {}
-          successMessage.value = `성공적으로 ${images.value.length}개의 도면을 추출했습니다. 처리 시간: ${response.data.processing_time || processingTime.value}초`
-          isProcessing.value = false
-          isCompleted.value = true
-          stopTimer()
-          
-        } else {
-          // AWS production - use base64
-          const fileBase64 = await fileToBase64(selectedFile.value)
-          
-          const response = await axios.post(`${config.API_URL}/upload`, {
-            file: fileBase64,
-            filename: selectedFile.value.name,
-            userId: 'web-user'
-          })
-
-          currentJobId.value = response.data.jobId
-          jobStatus.value = response.data.status
-          
-          // Save to history
-          saveToHistory({
-            jobId: response.data.jobId,
-            fileName: selectedFile.value.name,
-            status: response.data.status,
-            createdAt: Date.now()
-          })
-          
-          // Start checking job status
-          checkJobStatus()
         }
+        
+        if (response.data.annotated_images) {
+          annotatedImages.value = response.data.annotated_images.map(img => {
+            // Handle both string paths and filenames
+            const imgPath = typeof img === 'string' ? img : String(img)
+            const filename = imgPath.includes('/') ? imgPath.split('/').pop() : imgPath
+            return {
+              url: `${config.API_URL}/images/${filename}`,
+              key: filename
+            }
+          })
+        }
+        
+        numberMappings.value = response.data.number_mappings || {}
+        
+        // Save to history with full job data for local access
+        saveToHistory({
+          jobId: currentJobId.value,
+          fileName: selectedFile.value.name,
+          status: 'COMPLETED',
+          createdAt: Date.now(),
+          extractedImages: images.value,
+          annotatedImages: annotatedImages.value,
+          numberMappings: numberMappings.value,
+          processingTime: processingTime.value
+        })
+        
+        stopTimer()
+        isProcessing.value = false
+        isCompleted.value = true
+        successMessage.value = `성공적으로 ${images.value.length}개의 도면을 추출했습니다. 처리 시간: ${processingTime.value}초`
         
       } catch (error) {
         console.error('Error:', error)
-        errorMessage.value = error.response?.data?.error || error.response?.data?.detail || '업로드 중 오류가 발생했습니다.'
+        errorMessage.value = error.response?.data?.detail || error.message || '업로드 중 오류가 발생했습니다.'
         isProcessing.value = false
         stopTimer()
       }
@@ -417,56 +652,13 @@ export default {
     }
 
     const checkJobStatus = async () => {
-      if (!currentJobId.value) return
-
-      statusCheckInterval.value = setInterval(async () => {
-        try {
-          const response = await axios.get(`${config.API_URL}/status/${currentJobId.value}`)
-          
-          jobStatus.value = response.data.status
-          jobMessage.value = response.data.message
-          jobProgress.value = response.data.progress || 0
-          
-          if (response.data.status === 'COMPLETED') {
-            // Get results
-            await getJobResults()
-            stopStatusCheck()
-            stopTimer()
-            isProcessing.value = false
-            isCompleted.value = true  // Mark as completed
-            updateHistoryStatus(currentJobId.value, 'COMPLETED')
-            // Show result URL
-            const baseUrl = config.isLocal ? 'http://localhost:3000' : window.location.origin
-            successMessage.value = `처리 완료! 결과 페이지: ${baseUrl}/#/job/${currentJobId.value}`
-          } else if (response.data.status === 'FAILED') {
-            errorMessage.value = response.data.message || '처리 중 오류가 발생했습니다.'
-            stopStatusCheck()
-            stopTimer()
-            isProcessing.value = false
-            updateHistoryStatus(currentJobId.value, 'FAILED')
-          }
-        } catch (error) {
-          console.error('Status check error:', error)
-        }
-      }, 2000) // Check every 2 seconds
+      // Local server processes synchronously, no need for status checks
+      // This function is kept for compatibility but won't be called in local mode
     }
 
     const getJobResults = async () => {
-      try {
-        const response = await axios.get(`${config.API_URL}/result/${currentJobId.value}`)
-        
-        console.log('Result response:', response.data)
-        
-        // Lambda returns objects with presigned URLs
-        images.value = response.data.extractedImages || []
-        annotatedImages.value = response.data.annotatedImages || []
-        numberMappings.value = response.data.numberMappings || {}
-        
-        successMessage.value = `성공적으로 ${images.value.length}개의 도면을 추출했습니다. 처리 시간: ${response.data.processingTime || processingTime.value}초`
-      } catch (error) {
-        console.error('Error getting results:', error)
-        errorMessage.value = '결과를 가져오는 중 오류가 발생했습니다.'
-      }
+      // Local server returns results directly in upload response
+      // This function is kept for compatibility but won't be called in local mode
     }
 
     const stopStatusCheck = () => {
@@ -491,6 +683,253 @@ export default {
     const closeModal = () => {
       modalOpen.value = false
       selectedImage.value = null
+    }
+
+    const extractMappings = async () => {
+      if (!selectedFile.value) return
+
+      isProcessing.value = true
+      errorMessage.value = ''
+      successMessage.value = ''
+      processingTime.value = 0
+
+      // Start timer
+      processingTimer.value = setInterval(() => {
+        processingTime.value += 1
+      }, 1000)
+
+      try {
+        // Create FormData for mapping extraction
+        const formData = new FormData()
+        formData.append('file', selectedFile.value)
+        
+        // Extract mappings from PDF
+        const response = await axios.post(`${config.API_URL}/extract-mappings`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          },
+          timeout: 300000 // 5 minutes timeout
+        })
+
+        // Store uploaded file info
+        uploadedFile.value = selectedFile.value
+
+        // Process mapping response
+        if (response.data) {
+          extractedImages.value = response.data.extracted_images || []
+          detectedNumbers.value = response.data.detected_numbers || []
+          
+          // Initialize editable mappings with extracted mappings
+          const mappings = response.data.number_mappings || {}
+          editableMappings.value = []
+          
+          // Add detected numbers with their mappings
+          detectedNumbers.value.forEach(num => {
+            editableMappings.value.push({
+              number: num,
+              label: mappings[num] || '',
+              selected: !!mappings[num] // Auto-select if has mapping
+            })
+          })
+          
+          // Add any additional mappings not in detected numbers
+          Object.keys(mappings).forEach(num => {
+            if (!detectedNumbers.value.includes(num)) {
+              editableMappings.value.push({
+                number: num,
+                label: mappings[num],
+                selected: true
+              })
+            }
+          })
+          
+          showMappings.value = true
+          successMessage.value = '매핑 정보를 추출했습니다. 확인 후 처리를 진행하세요.'
+        }
+
+      } catch (error) {
+        console.error('Mapping extraction error:', error)
+        errorMessage.value = error.response?.data?.detail || '매핑 추출 중 오류가 발생했습니다.'
+      } finally {
+        isProcessing.value = false
+        stopTimer()
+      }
+    }
+
+    const processWithMappings = async () => {
+      // 매핑 정보 저장 (재작업을 위해)
+      savedMappings.value = [...editableMappings.value]
+      
+      // 재작업 모드인 경우 이전 결과 초기화
+      if (isReworkMode.value) {
+        // 어노테이션 이미지만 초기화 (원본 이미지는 유지)
+        annotatedImages.value = []
+      }
+      
+      isProcessing.value = true
+      errorMessage.value = ''
+      successMessage.value = ''
+      processingTime.value = 0
+      
+      // Start timer to show processing
+      processingTimer.value = setInterval(() => {
+        processingTime.value += 1
+      }, 1000)
+      
+      progressMessage.value = 'OCR 작업 시작 중...'
+      progress.value = 10
+
+      try {
+        // Collect selected mappings
+        const selectedMappings = {}
+        let selectedCount = 0
+        editableMappings.value.forEach(mapping => {
+          if (mapping.selected && mapping.label && mapping.label.trim()) {
+            selectedMappings[mapping.number] = mapping.label.trim()
+            selectedCount++
+          }
+        })
+        
+        progressMessage.value = `OCR로 도면에서 숫자 인식 중... (${selectedCount}개 매핑 적용 예정)`
+        progress.value = 30
+
+        // Process with selected mappings (including OCR)
+        const response = await axios.post(`${config.API_URL}/process-with-mappings`, {
+          pdf_filename: uploadedFile.value.name,
+          mappings: selectedMappings
+        }, {
+          timeout: 300000 // 5 minutes timeout for OCR processing (increased from 2 minutes)
+        })
+
+        // Process annotated images
+        if (response.data.annotated_images) {
+          annotatedImages.value = response.data.annotated_images.map(img => {
+            const imgPath = typeof img === 'string' ? img : img.toString()
+            const filename = imgPath.includes('/') ? imgPath.split('/').pop() : imgPath
+            return {
+              url: `${config.API_URL}/images/${filename}`,
+              key: filename
+            }
+          })
+        }
+        
+        // Keep extracted images for display
+        images.value = extractedImages.value.map(img => {
+          if (typeof img === 'object' && img.file_path) {
+            const filename = img.file_path.split('/').pop()
+            return {
+              url: `${config.API_URL}/images/${filename}`,
+              key: filename
+            }
+          }
+          return img
+        })
+
+        numberMappings.value = selectedMappings
+        isCompleted.value = true
+        showMappings.value = false
+        stopTimer()
+        progressMessage.value = ''
+        progress.value = 100
+        successMessage.value = `도면 처리가 완료되었습니다! (처리 시간: ${processingTime.value}초)`
+
+        // Store in job history using saveToHistory function
+        saveToHistory({
+          jobId: 'local-' + Date.now(),
+          fileName: uploadedFile.value.name,
+          status: 'COMPLETED',
+          createdAt: Date.now(),  // Use createdAt instead of timestamp for consistency
+          extractedImages: extractedImages.value,
+          annotatedImages: annotatedImages.value,
+          numberMappings: selectedMappings,
+          processingTime: processingTime.value
+        })
+
+      } catch (error) {
+        console.error('Processing error:', error)
+        errorMessage.value = error.response?.data?.detail || '처리 중 오류가 발생했습니다.'
+        stopTimer()
+      } finally {
+        isProcessing.value = false
+      }
+    }
+
+    const addMapping = () => {
+      if (newMapping.value.number && newMapping.value.label) {
+        // Check if number already exists
+        const existingIndex = editableMappings.value.findIndex(
+          m => m.number === newMapping.value.number
+        )
+        
+        if (existingIndex >= 0) {
+          // Update existing mapping
+          editableMappings.value[existingIndex].label = newMapping.value.label
+          editableMappings.value[existingIndex].selected = true
+        } else {
+          // Add new mapping
+          editableMappings.value.push({
+            number: newMapping.value.number,
+            label: newMapping.value.label,
+            selected: true
+          })
+        }
+        
+        // Clear input
+        newMapping.value = { number: '', label: '' }
+      }
+    }
+
+    const removeMapping = (index) => {
+      editableMappings.value.splice(index, 1)
+    }
+
+    const getImageUrl = (imagePath) => {
+      if (typeof imagePath === 'object' && imagePath.file_path) {
+        const filename = imagePath.file_path.split('/').pop()
+        return `${config.API_URL}/images/${filename}`
+      }
+      const filename = imagePath.split('/').pop()
+      return `${config.API_URL}/images/${filename}`
+    }
+
+    const generatePDF = async () => {
+      if (!uploadedFile.value && !selectedFile.value) {
+        errorMessage.value = 'PDF 파일이 없습니다.'
+        return
+      }
+
+      isGeneratingPDF.value = true
+      errorMessage.value = ''
+
+      try {
+        const filename = uploadedFile.value?.name || selectedFile.value?.name
+        
+        // Request PDF generation (annotated only)
+        const response = await axios.post(`${config.API_URL}/generate-pdf`, {
+          pdf_filename: filename,
+          pdf_type: 'annotated'
+        })
+
+        if (response.data.filename) {
+          // Download the generated PDF
+          const downloadUrl = `${config.API_URL}/download-pdf/${response.data.filename}`
+          
+          // Create a temporary anchor element to trigger download
+          const link = document.createElement('a')
+          link.href = downloadUrl
+          link.download = response.data.filename
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          
+          successMessage.value = '주석 PDF가 생성되었습니다.'
+        }
+      } catch (error) {
+        console.error('PDF generation error:', error)
+        errorMessage.value = error.response?.data?.detail || 'PDF 생성 중 오류가 발생했습니다.'
+      } finally {
+        isGeneratingPDF.value = false
+      }
     }
 
     const saveToHistory = (job) => {
@@ -541,34 +980,8 @@ export default {
           localStorage.setItem('jobHistory', JSON.stringify(localHistory))
         }
         
-        // Only try to load from server if on AWS
-        if (!config.isLocal) {
-          const response = await axios.get(`${config.API_URL}/history?limit=50`)
-          if (response.data && response.data.history) {
-            // Normalize server data to match local data structure
-            const serverHistory = response.data.history.map(job => ({
-              ...job,
-              fileName: job.fileName || job.filename // Ensure fileName field exists
-            }))
-            
-            // Merge server history with local history (remove duplicates)
-            const mergedHistory = [...serverHistory]
-            
-            // Add local items that don't exist on server
-            localHistory.forEach(localJob => {
-              if (!mergedHistory.find(j => j.jobId === localJob.jobId)) {
-                mergedHistory.push(localJob)
-              }
-            })
-            
-            jobHistory.value = mergedHistory.slice(0, 50) // Keep only latest 50
-          } else {
-            jobHistory.value = localHistory
-          }
-        } else {
-          // Local development - just use localStorage
-          jobHistory.value = localHistory
-        }
+        // For local server, just use localStorage
+        jobHistory.value = localHistory.slice(0, 50) // Keep only latest 50
       } catch (error) {
         console.error('Failed to load history from server:', error)
         // Fallback to localStorage with cleanup
@@ -632,9 +1045,66 @@ export default {
       return '파일명 없음'
     }
 
-    const startNewTask = () => {
-      // Reload the page to start fresh
+    const goHome = () => {
+      // 홈으로 이동 (페이지 새로고침)
       window.location.href = '/'
+    }
+    
+    const startNewTask = () => {
+      // Reset all states for new task
+      uploadedFile.value = null
+      images.value = []
+      annotatedImages.value = []
+      editableMappings.value = []
+      savedMappings.value = []
+      detectedNumbers.value = []
+      extractedImages.value = []
+      showMappings.value = false
+      isReworkMode.value = false
+      errorMessage.value = ''
+      successMessage.value = ''
+      isProcessing.value = false
+      isCompleted.value = false
+      processingTime.value = 0
+      progressMessage.value = ''
+      progress.value = 0
+      currentJobId.value = null
+      jobStatus.value = ''
+      jobMessage.value = ''
+      jobProgress.value = 0
+      modalOpen.value = false
+      selectedImage.value = null
+      showHistory.value = false
+      isGeneratingPDF.value = false
+      
+      // Clear timer if exists
+      if (processingTimer.value) {
+        clearInterval(processingTimer.value)
+        processingTimer.value = null
+      }
+    }
+    
+    const reworkTask = () => {
+      // 재작업: 이전 매핑 정보와 이미지를 유지하면서 분석 화면으로 돌아가기
+      if (savedMappings.value.length > 0) {
+        // 저장된 매핑 정보 복원
+        editableMappings.value = [...savedMappings.value]
+      }
+      
+      // 재작업 모드 설정
+      isReworkMode.value = true
+      showMappings.value = true
+      isCompleted.value = false  // 완료 상태 초기화
+      successMessage.value = ''
+      errorMessage.value = ''
+      
+      // 스크롤을 매핑 섹션으로 이동
+      nextTick(() => {
+        const mappingSection = document.querySelector('.mapping-section')
+        if (mappingSection) {
+          mappingSection.scrollIntoView({ behavior: 'smooth' })
+        }
+      })
     }
 
     const trackProcessingJob = (job) => {
@@ -711,26 +1181,72 @@ export default {
       jobStatusText,
       jobMessage,
       jobProgress,
+      showMappings,
+      extractedImages,
+      detectedNumbers,
+      editableMappings,
+      editableMappingsFirstHalf,
+      editableMappingsSecondHalf,
+      newMapping,
       handleFileSelect,
       handleDrop,
       removeFile,
       formatFileSize,
       uploadFile,
+      extractMappings,
+      processWithMappings,
+      addMapping,
+      removeMapping,
       openModal,
       closeModal,
+      generatePDF,
+      isGeneratingPDF,
+      getImageUrl,
       showHistory,
       jobHistory,
       formatDate,
       getStatusText,
       getJobFilename,
       trackProcessingJob,
-      startNewTask
+      startNewTask,
+      reworkTask,
+      goHome,
+      savedMappings,
+      isReworkMode,
+      selectedResultTab
     }
   }
 }
 </script>
 
 <style>
+.pdf-download-buttons {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.btn-pdf {
+  padding: 8px 16px;
+  background: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  white-space: nowrap;
+  transition: background 0.3s;
+}
+
+.btn-pdf:hover:not(:disabled) {
+  background: #45a049;
+}
+
+.btn-pdf:disabled {
+  background: #cccccc;
+  cursor: not-allowed;
+}
+
 .job-status {
   margin-top: 20px;
 }
@@ -1075,5 +1591,386 @@ export default {
 
 .mapping-value {
   flex: 1;
+}
+
+/* Compact file info for analysis/rework mode */
+.file-info-compact {
+  text-align: center;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.file-info-compact .file-name {
+  font-size: 14px;
+  color: #4a5568;
+  font-weight: 500;
+}
+
+/* Mapping Section Styles */
+.mapping-section {
+  margin-top: 30px;
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.mapping-section h2 {
+  margin-bottom: 20px;
+  color: #1e293b;
+}
+
+.mapping-info {
+  margin-bottom: 20px;
+  padding: 15px;
+  background: #f8fafc;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.mapping-table-container {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 30px;
+}
+
+.mapping-table {
+  overflow-x: auto;
+}
+
+.mapping-table.two-column {
+  flex: 1;
+}
+
+/* Responsive design for smaller screens */
+@media (max-width: 768px) {
+  .mapping-table-container {
+    flex-direction: column;
+    gap: 10px;
+  }
+}
+
+.mapping-table table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+}
+
+.mapping-table th {
+  background: #f1f5f9;
+  padding: 6px 10px;  /* Reduced from 12px */
+  text-align: left;
+  font-weight: 600;
+  font-size: 13px;  /* Reduced font size */
+  color: #475569;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.mapping-table td {
+  padding: 2px 8px;  /* Further reduced from 4px 10px */
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 13px;  /* Reduced font size */
+  vertical-align: middle;  /* Center content vertically */
+}
+
+.mapping-table input[type="checkbox"] {
+  cursor: pointer;
+  width: 16px;  /* Reduced from 18px */
+  height: 16px;  /* Reduced from 18px */
+}
+
+.mapping-table input[type="text"] {
+  width: 100%;
+  padding: 3px 8px;  /* Reduced from 6px 10px */
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-size: 13px;  /* Reduced from 14px */
+  transition: border-color 0.2s;
+}
+
+.mapping-table input[type="text"]:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.btn-sm {
+  padding: 2px 6px;  /* Reduced padding */
+  font-size: 10px;  /* Smaller font to fit in one line */
+  line-height: 1;  /* Compact line height */
+  min-height: 20px;  /* Smaller minimum height */
+  white-space: nowrap;  /* Prevent text wrapping */
+  display: inline-flex;  /* Use flexbox for centering */
+  align-items: center;  /* Center text vertically */
+  justify-content: center;  /* Center text horizontally */
+}
+
+.btn-sm.btn-icon {
+  padding: 1px;  /* Minimal padding for icon */
+  width: 18px;  /* Fixed width */
+  height: 18px;  /* Fixed height */
+  min-height: 18px;  /* Override minimum height */
+  font-size: 16px;  /* Larger font for × symbol */
+  font-weight: bold;  /* Bold × symbol */
+  border-radius: 3px;  /* Smaller border radius */
+}
+
+.btn-sm.btn-danger {
+  background: #ef4444;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-sm.btn-danger:hover {
+  background: #dc2626;
+}
+
+.add-mapping {
+  margin-bottom: 20px;  /* Reduced from 30px */
+  padding: 12px 15px;  /* Reduced from 20px */
+  background: #f8fafc;
+  border-radius: 6px;
+}
+
+.add-mapping-inline {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.add-mapping-inline h3 {
+  margin: 0;
+  font-size: 14px;  /* Reduced from 16px */
+  color: #334155;
+  white-space: nowrap;
+  min-width: fit-content;
+}
+
+.add-mapping-form {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex: 1;
+}
+
+.add-mapping-form .input-number {
+  width: 120px;  /* Reduced from 150px */
+  padding: 4px 8px;  /* Reduced from 8px 12px */
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-size: 13px;  /* Reduced from 14px */
+}
+
+.add-mapping-form .input-label {
+  width: 250px;  /* Fixed width instead of flex: 1 */
+  padding: 4px 8px;  /* Reduced from 8px 12px */
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-size: 13px;  /* Reduced from 14px */
+}
+
+.add-mapping-form input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.images-preview {
+  margin-top: 30px;
+}
+
+.images-preview h3 {
+  margin-bottom: 15px;
+  font-size: 18px;
+  color: #334155;
+}
+
+.images-preview .image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.images-preview .image-item {
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.images-preview .image-item:hover {
+  transform: scale(1.05);
+}
+
+.images-preview .image-item img {
+  width: 100%;
+  height: 150px;
+  object-fit: contain;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 5px;
+}
+
+.images-preview .image-caption {
+  margin-top: 5px;
+  font-size: 12px;
+  color: #64748b;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Annotated section header styles */
+.annotated-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.annotated-header h3 {
+  margin: 0;
+  font-size: 20px;
+  color: #1f2937;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.action-buttons .btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.action-buttons .btn-primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.action-buttons .btn-primary:hover {
+  background: #2563eb;
+}
+
+.action-buttons .btn-secondary {
+  background: #6b7280;
+  color: white;
+}
+
+.action-buttons .btn-secondary:hover {
+  background: #4b5563;
+}
+
+/* Inline action buttons for top section */
+.action-buttons-inline {
+  display: inline-flex;
+  gap: 10px;
+}
+
+.action-buttons-inline .btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.action-buttons-inline .btn-primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.action-buttons-inline .btn-primary:hover {
+  background: #2563eb;
+}
+
+.action-buttons-inline .btn-secondary {
+  background: #6b7280;
+  color: white;
+}
+
+.action-buttons-inline .btn-secondary:hover {
+  background: #4b5563;
+}
+
+/* Previous results in rework mode */
+.previous-results {
+  margin-bottom: 30px;
+  padding: 20px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.previous-results h3 {
+  margin-bottom: 15px;
+  font-size: 16px;
+  color: #1f2937;
+}
+
+.results-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.results-tabs .tab {
+  padding: 10px 20px;
+  background: none;
+  border: none;
+  color: #718096;
+  font-weight: 600;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.3s ease;
+}
+
+.results-tabs .tab.active {
+  color: #667eea;
+}
+
+.results-tabs .tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #667eea;
+}
+
+/* Home button styles - matching history button */
+.home-button {
+  position: absolute;
+  left: 20px;
+  top: 20px;
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid white;
+  color: white;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  backdrop-filter: blur(10px);
+}
+
+.home-button:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
 }
 </style>
