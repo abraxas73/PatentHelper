@@ -67,7 +67,7 @@ echo "CloudFront URL: $CLOUDFRONT_URL"
 # Build and deploy frontend
 echo -e "${YELLOW}📦 Building Frontend${NC}"
 
-cd front
+cd ../front
 
 # Update config.js with dynamic configuration
 cat > src/config.js <<EOF
