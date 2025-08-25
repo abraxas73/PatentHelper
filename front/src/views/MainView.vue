@@ -290,16 +290,16 @@
       </div>
       
       <!-- Extracted Images Preview -->
-      <div class="images-preview">
+      <div class="images-preview" v-if="extractedImages.length > 0">
         <h3>추출된 도면</h3>
         <div class="image-grid">
-          <div v-for="img in extractedImages" :key="img.file_path" class="image-item">
+          <div v-for="(img, index) in extractedImages" :key="img.file_path || index" class="image-item">
             <img 
-              :src="getImageUrl(img.file_path)" 
-              :alt="img.filename"
-              @click="openModal(img)"
+              :src="getImageUrl(img)" 
+              :alt="img.filename || `도면 ${index + 1}`"
+              @click="openModal(getImageUrl(img))"
             />
-            <div class="image-caption">{{ img.filename }}</div>
+            <div class="image-caption">{{ img.filename || `도면 ${index + 1}` }}</div>
           </div>
         </div>
       </div>
@@ -733,9 +733,13 @@ export default {
         const response = await axios.get(`${config.API_URL}/result/${currentJobId.value}`)
         
         console.log('Extraction result response:', response.data)
+        console.log('Extracted images from server:', response.data.extractedImages)
         
         // Store extracted images and mappings
         extractedImages.value = response.data.extractedImages || []
+        
+        console.log('Stored extractedImages:', extractedImages.value)
+        
         editableMappings.value = response.data.numberMappings ? 
           Object.entries(response.data.numberMappings).map(([number, label]) => ({
             number,
@@ -1041,12 +1045,24 @@ export default {
     }
 
     const getImageUrl = (imagePath) => {
+      // Handle object with file_path property
       if (typeof imagePath === 'object' && imagePath.file_path) {
-        const filename = imagePath.file_path.split('/').pop()
+        // For S3 paths like "results/{jobId}/extracted/filename.png"
+        return `${config.API_URL}/images/${imagePath.file_path}`
+      }
+      
+      // Handle string path
+      if (typeof imagePath === 'string') {
+        // If it's already a full S3 path
+        if (imagePath.startsWith('results/')) {
+          return `${config.API_URL}/images/${imagePath}`
+        }
+        // For legacy paths, just get filename
+        const filename = imagePath.split('/').pop()
         return `${config.API_URL}/images/${filename}`
       }
-      const filename = imagePath.split('/').pop()
-      return `${config.API_URL}/images/${filename}`
+      
+      return imagePath
     }
 
     const generatePDF = async () => {

@@ -9,6 +9,7 @@
 - 추출된 도면은 별도의 이미지 파일로 저장됩니다.
 - 추출된 도면에는 각 부위별로 넘버링이되어 있는데, 이 넘버링은 PDF 파일에 설명이 되어 있음.
 - 추출된 도면에 넘버링 부분에 "명칭"을 추가하여, 새로운 이미지로 저장합니다.
+- **어노테이션된 모든 도면을 하나의 PDF로 생성합니다** ✨ NEW
 - 이미지 영역 테두리: 빨간색 → 진한 회색 (#333333)
 - "Image Area" 텍스트: 빨간색 → 진한 회색 (#333333)
 - 좌우 확장 경계선: 파란색 → 중간 회색 (#666666)
@@ -20,47 +21,57 @@
 ```
 ┌─────────────────────────────────────────┐
 │         Frontend (Vue.js)                │
-│  - PDF 업로드 인터페이스                │
+│  - 2단계 처리 UI (매핑 추출 → OCR)      │
+│  - 매핑 편집 인터페이스                 │
 │  - 이미지 갤러리 뷰 (탭/그리드 통합)    │
-│  - 실시간 진행 상황 모니터링             │
-│  - 통합 ImageModal (확대/다운로드)       │
-│  - 반응형 UI 컴포넌트                   │
+│  - 실시간 진행 상황 모니터링            │
+│  - PDF 다운로드 기능                    │
+│  - 통합 ImageModal (확대/다운로드)      │
 └─────────────────────────────────────────┘
                     ↓ HTTP/REST
 ┌─────────────────────────────────────────┐
 │      AWS Lambda Functions               │
-│  - Upload Handler (파일 업로드)          │
-│  - Status Checker (작업 상태 확인)       │
+│  - Extract Mappings (매핑 추출 트리거)  │
+│  - Process Mappings (OCR 처리 트리거)   │
+│  - Status Checker (작업 상태 확인)      │
 │  - Result Fetcher (결과 조회)           │
 │  - History Manager (작업 이력)          │
 └─────────────────────────────────────────┘
                     ↓ 
 ┌─────────────────────────────────────────┐
-│         AWS ECS Fargate                 │
-│  - PDF Processor (PDF 파싱)             │
-│  - Image Extractor (도면 추출 + OCR)    │
-│  - Text Analyzer (텍스트 분석)          │
-│  - Image Annotator (한국어 어노테이션)   │
+│    AWS ECS Fargate (2개 컨테이너)       │
+├─────────────────────────────────────────┤
+│ 1. Extractor (경량 - 1GB/2GB)           │
+│    - PDF 파싱 및 이미지 추출            │
+│    - 텍스트 분석 및 매핑 추출           │
+│    - 빠른 시작 (PyTorch 없음)          │
+├─────────────────────────────────────────┤
+│ 2. OCR Processor (무거움 - 4GB/8GB)     │
+│    - EasyOCR로 번호 위치 감지           │
+│    - 이미지 어노테이션                  │
+│    - PDF 생성 (reportlab)               │
 └─────────────────────────────────────────┘
                     ↓
 ┌─────────────────────────────────────────┐
 │       AWS Cloud Storage                 │
 │  - S3 (파일 저장소)                    │
-│  - DynamoDB (작업 상태/이력)            │
-│  - CloudWatch (로깅/모니터링)           │
+│  - DynamoDB (작업 상태/메타데이터)      │
+│  - CloudWatch (로깅/모니터링)          │
 └─────────────────────────────────────────┘
 ```
 
-### 데이터 플로우 (서버리스)
-1. **PDF 업로드** → Lambda Upload Handler → S3 저장
-2. **작업 시작** → ECS Task 실행 (Fargate)
-3. **도면 추출** → PDF에서 이미지 추출 
-4. **OCR 처리** → EasyOCR로 도면 번호 및 부품 번호 인식 (한국어 지원)
-5. **텍스트 분석** → PDF 텍스트에서 번호-명칭 매핑 추출
-6. **이미지 어노테이션** → 유니코드 폰트로 한국어 명칭 추가
-7. **결과 저장** → S3 presigned URL로 이미지 저장
-8. **상태 업데이트** → DynamoDB에 진행 상황 및 결과 저장
-9. **결과 조회** → Lambda Result Fetcher → 프론트엔드 표시
+### 2단계 처리 프로세스
+1. **1단계: 매핑 추출 (Extractor 컨테이너)**
+   - PDF 업로드 → 텍스트/이미지 추출
+   - 번호-명칭 매핑 자동 추출
+   - 사용자가 매핑 편집 가능
+   - DynamoDB에 메타데이터 저장
+
+2. **2단계: OCR 및 PDF 생성 (OCR 컨테이너)**
+   - 선택된 매핑으로 OCR 수행
+   - 이미지에 어노테이션 추가
+   - 어노테이션된 PDF 생성
+   - S3에 최종 결과 저장
 
 ## 폴더 구조
 
@@ -70,15 +81,16 @@ PatentHelper/
 │   ├── services/             # 서비스 레이어
 │   │   ├── image_extractor.py    # 이미지 추출 및 OCR
 │   │   ├── text_analyzer.py      # 텍스트 분석
-│   │   └── image_annotator.py    # 한국어 어노테이션 (FontManager)
+│   │   ├── image_annotator.py    # 한국어 어노테이션
+│   │   └── pdf_generator.py      # PDF 생성
 │   └── core/                 # 핵심 비즈니스 로직
 │       └── pdf_processor.py  # PDF 처리 모듈
 ├── front/                    # 프론트엔드 (Vue.js)
 │   ├── src/
 │   │   ├── views/
-│   │   │   ├── MainView.vue        # 메인 페이지 (업로드/결과)
+│   │   │   ├── MainView.vue        # 메인 페이지 (2단계 처리)
 │   │   │   └── JobResultView.vue   # 작업 결과 상세 페이지
-│   │   ├── ImageModal.vue          # 통합 이미지 모달 (확대/다운로드)
+│   │   ├── ImageModal.vue          # 통합 이미지 모달
 │   │   ├── App.vue                 # 메인 Vue 컴포넌트
 │   │   ├── router.js               # Vue Router 설정
 │   │   └── config.js               # API 엔드포인트 설정
@@ -87,18 +99,24 @@ PatentHelper/
 │   ├── infrastructure/       # CloudFormation 템플릿
 │   │   └── template.yaml     # AWS 인프라 정의
 │   ├── lambda/               # Lambda Functions
-│   │   ├── upload/           # 파일 업로드 핸들러
+│   │   ├── extract-mappings/ # 매핑 추출 핸들러
+│   │   ├── process-mappings/ # OCR 처리 핸들러
 │   │   ├── status/           # 작업 상태 확인
 │   │   ├── result/           # 결과 조회
 │   │   ├── history/          # 작업 이력 관리
 │   │   └── image-proxy/      # 이미지 프록시
-│   ├── ecs/                  # ECS Fargate 처리 컨테이너
-│   │   ├── Dockerfile        # 유니코드 폰트 + Python 환경
-│   │   ├── app/              # 처리 로직 (app/ 복사본)
-│   │   ├── processor/        # ECS 메인 처리기
-│   │   └── requirements.txt  # Python 의존성
-│   ├── frontend/             # 프론트엔드 빌드 설정
+│   ├── ecs-extractor/        # 매핑 추출 컨테이너
+│   │   ├── Dockerfile        # 경량 이미지
+│   │   ├── processor/        # 추출 로직
+│   │   └── requirements.txt  # 최소 의존성 (4개)
+│   ├── ecs-ocr/              # OCR 처리 컨테이너
+│   │   ├── Dockerfile        # PyTorch + EasyOCR
+│   │   ├── processor/        # OCR 로직
+│   │   └── requirements.txt  # OCR 의존성 (6개)
 │   └── scripts/              # 배포 스크립트
+├── .github/workflows/        # GitHub Actions
+│   ├── deploy-ecs-extractor.yml  # Extractor 자동 배포
+│   └── deploy-ecs-ocr.yml        # OCR 자동 배포
 ├── data/                     # 로컬 개발 데이터
 ├── logs/                     # 로컬 개발 로그
 ├── tests/                    # 테스트 코드
@@ -106,191 +124,203 @@ PatentHelper/
 ├── requirements.txt          # Python 의존성
 ├── README.md                 # 프로젝트 문서
 └── CLAUDE.md                 # 프로젝트 명세
-
 ```
 
 ## 기술 스택
 
 ### 백엔드
 #### 프로그래밍 언어
-- **Python 3.10+** - 메인 개발 언어
+- **Python 3.12** - 메인 개발 언어
 
 #### 웹 프레임워크
 - **FastAPI** - 고성능 비동기 웹 프레임워크
 - **Uvicorn** - ASGI 서버
-- **Pydantic** - 데이터 검증 및 설정 관리
 
 #### PDF 처리
 - **pypdfium2** - PDF 파싱 및 이미지 추출
 - **pdfplumber** - PDF 텍스트 추출
-- **PyPDF2** - PDF 메타데이터 처리
+- **reportlab** - PDF 생성
 
 #### 이미지 처리
-- **OpenCV** - 이미지 처리 및 분석
+- **OpenCV** - 이미지 처리 및 분석 (OCR 컨테이너만)
 - **Pillow** - 이미지 조작 및 저장
-- **NumPy** - 배열 연산
+- **NumPy** - 배열 연산 (OCR 컨테이너만)
 
 #### OCR (광학 문자 인식)
-- **EasyOCR** - 다국어 OCR (한국어/영어 지원) ✅ 설치 완료
-- **PyTorch** - EasyOCR 백엔드
-- **TorchVision** - 이미지 처리 모델
+- **EasyOCR** - 다국어 OCR (한국어/영어 지원)
+- **PyTorch** - EasyOCR 백엔드 (CPU 버전)
 
 ### 프론트엔드
 #### 프레임워크
 - **Vue.js 3** - 반응형 UI 프레임워크
 - **Vite** - 빌드 도구 및 개발 서버
+- **Vue Router** - SPA 라우팅
 - **Axios** - HTTP 클라이언트
 
 #### 스타일링
 - **CSS3** - 커스텀 스타일링
 - **Flexbox/Grid** - 레이아웃
 
-### 개발 도구
-- **pytest** - 테스트 프레임워크
-- **black** - 코드 포매터
-- **python-dotenv** - 환경변수 관리
-- **aiofiles** - 비동기 파일 처리
+### AWS 인프라
+- **Lambda** - 서버리스 함수 (API 엔드포인트)
+- **ECS Fargate** - 컨테이너 실행 (무거운 처리)
+- **S3** - 파일 저장소
+- **DynamoDB** - NoSQL 데이터베이스
+- **CloudFront** - CDN
+- **API Gateway** - REST API
+- **ECR** - 컨테이너 레지스트리
+- **CloudWatch** - 로깅 및 모니터링
 
-### 선택 이유
+### CI/CD
+- **GitHub Actions** - 자동 배포
+- **SAM (Serverless Application Model)** - 인프라 배포
+- **Docker** - 컨테이너화
 
-1. **Python**: PDF/이미지 처리에 강력한 라이브러리 생태계
-2. **FastAPI**: 자동 API 문서화, 타입 안정성, 고성능
-3. **pypdfium2**: 크로스 플랫폼 지원, 안정적인 PDF 렌더링
-4. **EasyOCR**: 한국어 지원, GPU 가속 옵션, 높은 정확도
-5. **Vue.js**: 간단한 학습 곡선, 반응형 UI, 컴포넌트 기반
-6. **레이어드 아키텍처**: 관심사 분리, 유지보수 용이, 테스트 가능
+## 컨테이너 최적화 상세
 
-## API 엔드포인트 (AWS Lambda)
+### Extractor 컨테이너 (경량)
+**용도**: PDF 분석 및 매핑 추출
+**리소스**: CPU 1024, Memory 2048MB
+**의존성** (4개만):
+- pypdfium2 (PDF 처리)
+- pdfplumber (텍스트 추출)
+- Pillow (이미지 처리)
+- boto3 (AWS 연동)
 
-### 업로드 및 처리
-- `POST /upload` - PDF 업로드 및 ECS 작업 시작
-- `GET /status/{jobId}` - 작업 상태 실시간 확인
-- `GET /result/{jobId}` - 작업 결과 조회 (presigned URLs)
-- `GET /history?limit=50` - 작업 이력 조회
+### OCR 컨테이너 (무거움)
+**용도**: OCR 처리 및 PDF 생성
+**리소스**: CPU 4096, Memory 8192MB
+**의존성** (6개):
+- easyocr (OCR 엔진)
+- opencv-python (이미지 전처리)
+- Pillow (이미지 처리)
+- numpy (배열 연산)
+- boto3 (AWS 연동)
+- reportlab (PDF 생성)
 
-### 이미지 서비스
-- `GET /images/{key}` - S3 이미지 프록시 (presigned URL 생성)
+## API 엔드포인트
 
-### 로컬 개발용 (FastAPI)
-- `POST /api/v1/process` - PDF 업로드 및 처리
-- `GET /api/v1/status` - 서비스 상태 확인
+### AWS Lambda 엔드포인트
+- `POST /extract-mappings` - 매핑 추출 시작
+- `POST /process-with-mappings` - OCR 처리 시작
+- `GET /status/{jobId}` - 작업 상태 확인
+- `GET /result/{jobId}` - 작업 결과 조회
+- `GET /history` - 작업 이력 조회
+- `GET /images/{key}` - S3 이미지 프록시
+
+### 로컬 개발 엔드포인트
+- `POST /api/v1/extract-mappings` - 매핑 추출
+- `POST /api/v1/process-with-mappings` - OCR 처리
+- `GET /api/v1/status` - 서비스 상태
 - `GET /api/v1/images/{filename}` - 이미지 조회
-- `GET /api/v1/list-images` - 이미지 목록 조회
 
 ## 실행 방법
 
-### 백엔드 실행
+### 로컬 개발 환경
 
-#### 1. 패키지 설치
+#### 1. 백엔드 실행
 ```bash
+# 프로젝트 루트에서
 pip install -r requirements.txt
-pip install easyocr  # OCR 기능 (필수, PyTorch 포함)
-```
-
-#### 2. 환경 설정
-```bash
-cp .env.example .env
-# 필요시 .env 파일 수정
-```
-
-#### 3. 서버 실행
-```bash
 python main.py
-# 서버가 http://localhost:8000 에서 실행됨
+# http://localhost:8000에서 실행
 ```
 
-### 프론트엔드 실행
-
-#### 1. 패키지 설치
+#### 2. 프론트엔드 실행
 ```bash
 cd front
 npm install
-```
-
-#### 2. 개발 서버 실행
-```bash
 npm run dev
-# 프론트엔드가 http://localhost:3000 에서 실행됨
+# http://localhost:3000에서 실행
 ```
 
-#### 3. 프로덕션 빌드
+### AWS 배포
+
+#### Lambda 함수 배포
 ```bash
-npm run build
-npm run preview
+cd deploy_aws/infrastructure
+sam build
+sam deploy --stack-name patent-helper-prod \
+  --s3-bucket patent-helper-sam-deploy-857201044807 \
+  --capabilities CAPABILITY_IAM \
+  --region ap-northeast-2
 ```
 
-## 사용 방법 (로컬 실행)
-
-### 1. 백엔드 서버 실행
+#### 프론트엔드 배포
 ```bash
-# 프로젝트 루트 디렉토리에서
-python main.py
-# 백엔드 서버가 http://localhost:8000 에서 실행됨
+cd deploy_aws
+./update-frontend.sh
 ```
 
-### 2. 프론트엔드 실행  
-```bash
-# local 디렉토리로 이동
-cd local
+#### ECS 컨테이너 배포
+GitHub에 푸시하면 GitHub Actions가 자동으로 배포
 
-# 개발 서버 실행
-npm run dev
-# 프론트엔드가 http://localhost:3001 에서 실행됨
-```
+## 사용 방법
 
-### 3. 사용 단계
-1. 브라우저에서 http://localhost:3001 접속
-2. PDF 파일 업로드 (드래그&드롭 또는 파일 선택)
-3. "도면 추출 시작" 버튼 클릭
-4. 실시간 처리 진행 상황 확인
-   - 분석 단계: PDF 파싱, 도면 추출, OCR 처리
-   - OCR 단계: 텍스트 분석, 명칭 추가
-5. 추출된 도면 확인
-   - 원본 도면 탭: 추출된 원본 이미지
-   - 어노테이션 탭: 명칭이 추가된 이미지
-6. 이미지 클릭하여 확대 보기 및 다운로드
+### 1단계: 매핑 추출
+1. PDF 파일 업로드
+2. 자동으로 번호-명칭 매핑 추출
+3. 매핑 정보 편집 가능
+   - 체크박스로 선택/해제
+   - 명칭 수정
+   - 새 매핑 추가
+   - 불필요한 매핑 삭제
 
-## API 문서
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-- API 상태: http://localhost:8000/api/v1/status
+### 2단계: OCR 처리
+1. 편집된 매핑으로 OCR 시작
+2. 선택된 번호만 어노테이션
+3. 어노테이션된 이미지 생성
+4. 모든 이미지를 하나의 PDF로 생성
+
+### 결과 확인
+- 원본 도면 탭: 추출된 원본 이미지
+- 어노테이션 탭: 명칭이 추가된 이미지
+- PDF 다운로드: 어노테이션된 전체 PDF
 
 ## 현재 상태 및 주요 기능
 
 ### ✅ 완료된 기능
-- **AWS 서버리스 아키텍처**: Lambda + ECS Fargate 기반 클라우드 배포
-- **실시간 작업 모니터링**: 진행 상황 실시간 업데이트 (2초 간격 폴링)
-- **한국어 텍스트 지원**: 유니코드 폰트 (Noto Sans CJK, DejaVu) + FontManager
-- **고급 이미지 뷰어**: ImageModal 컴포넌트 (확대, 다운로드, 형식 변환)
-- **통합 UI 경험**: 메인 페이지와 결과 페이지 일관된 디자인
-- **작업 이력 관리**: localStorage + DynamoDB 백업
-- **반응형 디자인**: 모바일/태블릿 최적화
+- **2단계 처리 프로세스**: 매핑 추출 → OCR 처리
+- **컨테이너 분리**: 경량 Extractor + 무거운 OCR
+- **매핑 편집 UI**: 체크박스, 수정, 추가, 삭제
+- **PDF 생성**: 어노테이션된 모든 이미지를 하나의 PDF로
+- **실시간 모니터링**: 진행 상황 실시간 업데이트
+- **자동 배포**: GitHub Actions로 컨테이너 자동 빌드/배포
+- **한국어 완벽 지원**: 폰트 및 인코딩 문제 해결
 
-### 🚀 핵심 개선사항
-1. **처리 속도**: 기존 90-120초 → 즉시 시작 (ECS 직접 호출)
-2. **한국어 렌더링**: PIL 'latin-1' 오류 완전 해결
-3. **UI 일관성**: 이미지 배열/매핑 정보 표시 통일
-4. **다운로드 기능**: S3 presigned URL 지원, 다중 형식 변환
-5. **에러 핸들링**: 상세한 진행 단계별 오류 처리
-6. **도면 어노테이션 최적화**: 
-   - 도면 확장 크기를 라벨 너비에 맞춰 최적화
-   - 화살표 길이 단축 (30px)으로 깔끔한 표시
-   - 상하 여백 추가로 라벨 짤림 방지
-   - 오른쪽 라벨 위치 자동 조정으로 완전 표시
-7. **정밀한 도면 영역 추출**:
-   - 실제 도면 영역만 자동 감지 및 크롭
-   - 상하 여백 80px로 대폭 증가하여 잘림 완전 방지
-   - 첫 페이지 상단 텍스트 헤더 자동 제외 (텍스트 블록 분석)
-   - 텍스트/도면 구분 로직 강화 (숫자, 짧은 라벨 분석)
-   - 라벨링 후 재크롭 후처리로 최적 크기 조정
+### 🚀 최신 개선사항
+1. **컨테이너 최적화**: 
+   - Extractor: 4개 라이브러리만 사용 (빠른 시작)
+   - OCR: 6개 라이브러리 (필수 기능만)
+2. **PDF 생성 기능**: OCR 처리 후 자동으로 PDF 생성
+3. **GitHub Actions 분리**: 각 컨테이너 독립 배포
+4. **메타데이터 관리**: DynamoDB로 단계 간 데이터 전달
 
-### 📊 기술 스택
-- **Frontend**: Vue.js 3 + Vite + Vue Router
-- **Backend**: AWS Lambda (Node.js) + ECS Fargate (Python)
-- **Processing**: EasyOCR + OpenCV + Pillow + pypdfium2
-- **Storage**: AWS S3 + DynamoDB
-- **Deployment**: GitHub Actions + CloudFormation
+### 📊 성능 지표
+- **Extractor 시작 시간**: ~10초
+- **OCR 처리 시간**: 이미지당 ~5-10초
+- **PDF 생성**: ~5초
+- **전체 처리 시간**: 30-60초 (PDF 크기에 따라)
 
 ### 🔧 배포 환경
-- **AWS 프로덕션**: https://d1k8m3z5xkr8hb.cloudfront.net (서버리스)
-- **로컬 개발**: http://localhost:3000 (프론트엔드) + http://localhost:8000 (백엔드)
+- **AWS 프로덕션**: https://d38f9rplbkj0f2.cloudfront.net
+- **API Gateway**: https://ginihhv5d6.execute-api.ap-northeast-2.amazonaws.com/prod
+- **로컬 개발**: http://localhost:3000 (프론트) + http://localhost:8000 (백엔드)
+
+## 문제 해결
+
+### 일반적인 문제
+1. **ECS 태스크 실행 권한 오류**: Lambda IAM 역할에 ECS RunTask 권한 추가
+2. **모듈 없음 오류**: requirements.txt 확인 및 컨테이너 재빌드
+3. **PDF 생성 실패**: reportlab 설치 확인
+
+### 디버깅
+- CloudWatch Logs에서 ECS 컨테이너 로그 확인
+- Lambda 함수 로그 확인
+- DynamoDB에서 작업 상태 확인
+
+## 향후 계획
+- [ ] 배치 처리 기능
+- [ ] 사용자 인증 추가
+- [ ] 처리 결과 이메일 알림
+- [ ] 다국어 OCR 지원 확대
