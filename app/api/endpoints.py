@@ -1,7 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pathlib import Path
-from typing import List
+from typing import List, Dict
 import shutil
 import time
 import logging
@@ -66,9 +66,33 @@ async def process_patent_pdf(
             logger.info("Extracting images from PDF...")
             raw_images = pdf_processor.extract_all_images()
             
-            # Save extracted images
+            # Save extracted images - this returns processed images with crop info
             pdf_name = Path(file.filename).stem
             extracted_images = image_extractor.extract_and_save_images(raw_images, pdf_name)
+            
+            # Store crop information for each image
+            for img_info in extracted_images:
+                # Store the original page dimensions before any cropping
+                img_info['original_page_width'] = img_info.get('original_width', img_info['width'])
+                img_info['original_page_height'] = img_info.get('original_height', img_info['height'])
+            
+            # Convert any numpy types to Python native types
+            import numpy as np
+            def convert_numpy_types(obj):
+                if isinstance(obj, dict):
+                    return {k: convert_numpy_types(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [convert_numpy_types(item) for item in obj]
+                elif isinstance(obj, (np.integer, np.int32, np.int64)):
+                    return int(obj)
+                elif isinstance(obj, (np.floating, np.float32, np.float64)):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                else:
+                    return obj
+            
+            extracted_images = convert_numpy_types(extracted_images)
             
             # Analyze text to find number mappings
             logger.info("Analyzing text for number-label mappings...")
@@ -203,6 +227,15 @@ class GeneratePDFRequest(BaseModel):
     pdf_type: str = "combined"  # "annotated" or "combined"
 
 
+class ExtractMappingsRequest(BaseModel):
+    pdf_filename: str
+
+
+class ProcessWithMappingsRequest(BaseModel):
+    pdf_filename: str
+    mappings: Dict[str, str]  # Selected and edited mappings
+
+
 @router.post("/generate-pdf")
 async def generate_pdf(request: GeneratePDFRequest):
     """Generate PDF with annotated images"""
@@ -319,6 +352,216 @@ async def convert_image(request: ConvertRequest):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/extract-mappings")
+async def extract_mappings(file: UploadFile = File(...)):
+    """Extract number mappings and images from PDF without annotation"""
+    
+    # Validate file
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+    
+    # Save uploaded file
+    pdf_path = settings.upload_dir / file.filename
+    try:
+        with open(pdf_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        logger.error(f"Failed to save uploaded file: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save uploaded file")
+    
+    try:
+        # Initialize services
+        image_extractor = ImageExtractor(
+            settings.output_image_dir,
+            settings.ocr_languages,
+            settings.ocr_gpu
+        )
+        text_analyzer = TextAnalyzer()
+        
+        # Process PDF
+        with PDFProcessor(pdf_path) as pdf_processor:
+            # Extract text
+            logger.info("Extracting text from PDF...")
+            full_text = pdf_processor.extract_text()
+            
+            # Extract images
+            logger.info("Extracting images from PDF...")
+            raw_images = pdf_processor.extract_all_images()
+            
+            # Save extracted images - this returns processed images with crop info
+            pdf_name = Path(file.filename).stem
+            extracted_images = image_extractor.extract_and_save_images(raw_images, pdf_name)
+            
+            # Store crop information for each image
+            for img_info in extracted_images:
+                # Store the original page dimensions before any cropping
+                img_info['original_page_width'] = img_info.get('original_width', img_info['width'])
+                img_info['original_page_height'] = img_info.get('original_height', img_info['height'])
+            
+            # Convert any numpy types to Python native types
+            import numpy as np
+            def convert_numpy_types(obj):
+                if isinstance(obj, dict):
+                    return {k: convert_numpy_types(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [convert_numpy_types(item) for item in obj]
+                elif isinstance(obj, (np.integer, np.int32, np.int64)):
+                    return int(obj)
+                elif isinstance(obj, (np.floating, np.float32, np.float64)):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                else:
+                    return obj
+            
+            extracted_images = convert_numpy_types(extracted_images)
+            
+            # Analyze text to find number mappings
+            logger.info("Analyzing text for number-label mappings...")
+            number_mappings = text_analyzer.extract_number_mappings(full_text)
+            
+            # Store metadata for later processing (NO OCR done yet)
+            metadata_file = settings.upload_dir / f"{pdf_name}_preview_metadata.json"
+            import json
+            import numpy as np
+            
+            # Custom JSON encoder to handle NumPy types
+            class NumpyEncoder(json.JSONEncoder):
+                def default(self, obj):
+                    if isinstance(obj, (np.integer, np.int32, np.int64)):
+                        return int(obj)
+                    elif isinstance(obj, (np.floating, np.float32, np.float64)):
+                        return float(obj)
+                    elif isinstance(obj, np.ndarray):
+                        return obj.tolist()
+                    elif isinstance(obj, Path):
+                        return str(obj)
+                    return super().default(obj)
+            
+            with open(metadata_file, 'w') as f:
+                json.dump({
+                    'pdf_path': str(pdf_path),
+                    'extracted_images': extracted_images,
+                    'number_mappings': number_mappings
+                }, f, cls=NumpyEncoder)
+            
+            return {
+                'pdf_filename': file.filename,
+                'total_pages': pdf_processor.get_page_count(),
+                'extracted_images': extracted_images,
+                'number_mappings': number_mappings
+            }
+            
+    except Exception as e:
+        logger.error(f"Processing failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/process-with-mappings")
+async def process_with_mappings(request: ProcessWithMappingsRequest):
+    """Process PDF with selected/edited mappings"""
+    
+    pdf_name = Path(request.pdf_filename).stem
+    metadata_file = settings.upload_dir / f"{pdf_name}_preview_metadata.json"
+    
+    if not metadata_file.exists():
+        raise HTTPException(status_code=404, detail="Preview metadata not found. Please extract mappings first.")
+    
+    import json
+    with open(metadata_file, 'r') as f:
+        metadata = json.load(f)
+    
+    try:
+        # Initialize services
+        image_extractor = ImageExtractor(
+            settings.output_image_dir,
+            settings.ocr_languages,
+            settings.ocr_gpu
+        )
+        image_annotator = ImageAnnotator(settings.output_annotated_dir)
+        
+        # Use provided mappings
+        selected_mappings = request.mappings
+        
+        # NOW perform OCR to find numbered regions in each image
+        logger.info("Starting OCR to find numbered regions in images...")
+        numbered_regions_by_image = {}
+        
+        for img_info in metadata['extracted_images']:
+            logger.info(f"Processing image: {img_info['file_path']}")
+            
+            # Store original dimensions and crop info in the image metadata
+            # This will be used to restore proper positioning
+            img_info['crop_info'] = {
+                'original_page_height': img_info.get('original_page_height', img_info.get('original_height', img_info.get('height'))),
+                'original_page_width': img_info.get('original_page_width', img_info.get('original_width', img_info.get('width'))),
+                'crop_top': img_info.get('crop_top', 0),
+                'crop_bottom': img_info.get('crop_bottom', 0)
+            }
+            
+            regions = image_extractor.find_numbered_regions(img_info['file_path'])
+            if regions:
+                # Log all detected numbers before filtering
+                detected_numbers = [r['number'] for r in regions]
+                logger.info(f"Detected numbers in {img_info['file_path']}: {detected_numbers}")
+                
+                # Only keep regions for numbers we have mappings for
+                filtered_regions = [r for r in regions if r['number'] in selected_mappings]
+                filtered_numbers = [r['number'] for r in filtered_regions]
+                logger.info(f"Filtered numbers (with mappings): {filtered_numbers}")
+                
+                if filtered_regions:
+                    numbered_regions_by_image[img_info['file_path']] = filtered_regions
+                    logger.info(f"Found {len(filtered_regions)} mapped regions in {img_info['file_path']}")
+        
+        # Annotate images with selected mappings
+        logger.info("Annotating images with selected labels...")
+        logger.info(f"Selected mappings: {selected_mappings}")
+        logger.info(f"Number of extracted images: {len(metadata['extracted_images'])}")
+        logger.info(f"Number of images with regions: {len(numbered_regions_by_image)}")
+        
+        annotated_paths = image_annotator.batch_annotate(
+            metadata['extracted_images'],
+            selected_mappings,
+            numbered_regions_by_image
+        )
+        
+        # Store final metadata for PDF generation
+        final_metadata_file = settings.upload_dir / f"{pdf_name}_metadata.json"
+        
+        # NumpyEncoder should already be imported at the top, but define here for safety
+        import numpy as np
+        class NumpyEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, (np.integer, np.int32, np.int64)):
+                    return int(obj)
+                elif isinstance(obj, (np.floating, np.float32, np.float64)):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                elif isinstance(obj, Path):
+                    return str(obj)
+                return super().default(obj)
+        
+        with open(final_metadata_file, 'w') as f:
+            json.dump({
+                'pdf_path': metadata['pdf_path'],
+                'extracted_images': metadata['extracted_images'],
+                'annotated_images': [str(p) for p in annotated_paths],
+                'number_mappings': selected_mappings
+            }, f, cls=NumpyEncoder)
+        
+        return {
+            'pdf_filename': request.pdf_filename,
+            'annotated_images': [str(p) for p in annotated_paths],
+            'applied_mappings': selected_mappings
+        }
+        
+    except Exception as e:
+        logger.error(f"Processing with mappings failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

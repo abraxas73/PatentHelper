@@ -146,10 +146,18 @@ class ImageAnnotator:
                       image_path: str,
                       numbered_regions: List[Dict],
                       number_mappings: Dict[str, str],
-                      output_filename: str) -> Path:
+                      output_filename: str,
+                      original_dimensions: Optional[Tuple[int, int]] = None) -> Path:
         
         # Correct OCR misrecognitions
         numbered_regions = self.correct_ocr_misrecognition(numbered_regions, number_mappings)
+        
+        # Performance optimization: limit number of labels if too many
+        MAX_LABELS_PER_SIDE = 12  # Maximum labels per side to prevent overcrowding
+        if len(numbered_regions) > MAX_LABELS_PER_SIDE * 2:
+            logger.warning(f"Too many regions ({len(numbered_regions)}), limiting to {MAX_LABELS_PER_SIDE * 2} most confident")
+            # Sort by confidence and take top regions
+            numbered_regions = sorted(numbered_regions, key=lambda r: r.get('confidence', 0), reverse=True)[:MAX_LABELS_PER_SIDE * 2]
         
         # Load original image
         original_img = Image.open(image_path)
@@ -178,14 +186,13 @@ class ImageAnnotator:
                         max_label_width = max(max_label_width, len(label) * 10)
         
         # Calculate optimized expansion - different for each side
-        # Left side - reduced space since labels are closer
-        left_expansion = max(max_label_width - 30, 50)  # Reduced by 50px, minimum 50px
-        # Right side - more expansion for labels that might be pushed right
-        right_expansion = 80  # Increased by 50px for labels that avoid numbers
+        # Use more conservative expansion to prevent excessive image size changes
+        left_expansion = min(max(max_label_width + 30, 80), 150)  # Limited to 150px max
+        right_expansion = min(max(max_label_width + 30, 80), 150)  # Limited to 150px max
         
         # Calculate vertical expansion needed for labels that go up/down
         label_height = 30  # Approximate label box height
-        max_vertical_offset = 100  # Maximum distance labels can be shifted vertically
+        max_vertical_offset = 50  # Reduced vertical offset
         vertical_expansion = max_vertical_offset + label_height  # Space for shifted labels
         
         # Create expanded canvas with asymmetric horizontal expansion
@@ -220,14 +227,32 @@ class ImageAnnotator:
         # Track label positions to avoid overlaps
         label_positions = {'left': [], 'right': []}
         
-        # Annotate each numbered region
+        # Performance optimization: batch process regions by side
+        left_regions = []
+        right_regions = []
+        
+        # Sort regions into left and right based on position
         for region in numbered_regions:
+            # Skip if no mapping exists for this number
+            if region['number'] not in number_mappings:
+                continue
+            
+            center_x = region['center']['x'] + left_expansion
+            if center_x < (expanded_width / 2):
+                left_regions.append(region)
+            else:
+                right_regions.append(region)
+        
+        # Process regions in batches for better performance
+        all_regions = left_regions + right_regions
+        
+        # Annotate each numbered region
+        for idx, region in enumerate(all_regions):
+            # Log progress for debugging
+            if idx % 5 == 0:
+                logger.info(f"Processing annotation {idx + 1}/{len(all_regions)}")
             number = region['number']
             
-            # Skip if no mapping exists for this number
-            if number not in number_mappings:
-                continue
-                
             label = number_mappings[number]
             bbox = region['bbox']
             center = region['center']
@@ -239,9 +264,13 @@ class ImageAnnotator:
             }
             
             # Calculate optimal label position in expanded areas with overlap avoidance
-            arrow_start, bend_point = self._calculate_optimal_label_position_expanded(
-                expanded_img, adjusted_center, bbox, left_expansion, right_expansion, label_positions, working_font
-            )
+            try:
+                arrow_start, bend_point = self._calculate_optimal_label_position_expanded(
+                    expanded_img, adjusted_center, bbox, left_expansion, right_expansion, label_positions, working_font
+                )
+            except Exception as e:
+                logger.error(f"Failed to calculate position for region {number}: {e}")
+                continue
             
             # Arrow end point should be near the number but not covering it
             # Stop arrow just before the number with enough space for arrowhead
@@ -252,10 +281,14 @@ class ImageAnnotator:
                 arrow_end = (int(adjusted_center['x'] + arrowhead_space), int(adjusted_center['y']))  # Stop before number
             
             # Draw bent arrow (L-shaped) to avoid covering the number
-            self._draw_bent_arrow(draw, arrow_start, bend_point, arrow_end)
-            
-            # Draw label box in expanded area
-            self._draw_label_box(draw, arrow_start, label, working_font)
+            try:
+                self._draw_bent_arrow(draw, arrow_start, bend_point, arrow_end)
+                
+                # Draw label box in expanded area
+                self._draw_label_box(draw, arrow_start, label, working_font)
+            except Exception as e:
+                logger.error(f"Failed to draw annotation for region {number}: {e}")
+                continue
         
         # DEBUG: Draw expansion area boundaries
         if self.debug_mode:
@@ -506,8 +539,9 @@ class ImageAnnotator:
             direction = initial_direction
             max_offset = 120  # Increased to allow more vertical spacing
             attempts = 0
+            max_attempts = 10  # Limit attempts to prevent infinite loop
             
-            while overlapping and abs(offset) < max_offset:
+            while overlapping and abs(offset) < max_offset and attempts < max_attempts:
                 test_y = base_y + offset
                 
                 # Ensure test_y stays within safe boundaries
@@ -609,71 +643,57 @@ class ImageAnnotator:
                                                left_expansion: int, right_expansion: int, vertical_expansion: int, 
                                                debug_border: bool = False) -> Image:
         """
-        Post-process to crop the image with smart top adjustment based on label positions
+        Post-process to crop the image, maintaining original drawing area while including labels
         """
-        # Find the topmost label position to determine where to crop
-        topmost_label_y = float('inf')
-        for side, positions in label_positions.items():
-            for x, y in positions:
-                topmost_label_y = min(topmost_label_y, y)
+        # Keep the original image area intact
+        min_x = 0  # Include from the start to preserve all labels
+        min_y = 0  # Keep from top to maintain original position
+        max_x = img.width  # Include full width
+        max_y = img.height  # Include full height
         
-        # Find the actual bounds of all content (original drawing + labels)
-        min_x, min_y = float('inf'), float('inf')
-        max_x, max_y = 0, 0
+        # Find actual content bounds including labels
+        if label_positions:
+            # Find leftmost and rightmost label positions
+            leftmost_x = float('inf')
+            rightmost_x = 0
+            
+            for side, positions in label_positions.items():
+                for x, y in positions:
+                    if side == 'left':
+                        leftmost_x = min(leftmost_x, x - 10)
+                    else:  # right
+                        rightmost_x = max(rightmost_x, x + 200)  # Include label width
+            
+            # Only crop horizontally if we can preserve all labels
+            if leftmost_x != float('inf') and leftmost_x > 10:
+                min_x = max(0, leftmost_x - 10)
+            if rightmost_x > 0 and rightmost_x < img.width - 10:
+                max_x = min(img.width, rightmost_x + 10)
         
-        # Original drawing bounds (in expanded coordinates)
-        min_x = min(min_x, left_expansion)  # Left edge of original drawing
+        # Smart vertical cropping: remove unnecessary top/bottom space
+        # But keep original drawing area
+        if label_positions:
+            # Find topmost and bottommost positions
+            topmost_y = float('inf')
+            bottommost_y = 0
+            
+            for side, positions in label_positions.items():
+                for x, y in positions:
+                    topmost_y = min(topmost_y, y - 20)
+                    bottommost_y = max(bottommost_y, y + 20)
+            
+            # Include original drawing area
+            topmost_y = min(topmost_y, vertical_expansion - 10)
+            bottommost_y = max(bottommost_y, vertical_expansion + original_height + 10)
+            
+            if topmost_y != float('inf'):
+                min_y = max(0, topmost_y)
+            if bottommost_y > 0:
+                max_y = min(img.height, bottommost_y)
         
-        # Smart top cropping: if we have labels, crop from just above the topmost label
-        # This removes text area above the drawing on first page
-        if topmost_label_y != float('inf'):
-            # Crop from 5% above the topmost label position
-            min_y = max(0, int(topmost_label_y * 0.95))
-        else:
-            min_y = min(min_y, vertical_expansion)  # Default: top edge of original drawing
-        
-        max_x = max(max_x, left_expansion + original_width)  # Right edge of original drawing
-        max_y = max(max_y, vertical_expansion + original_height)  # Bottom edge of original drawing
-        
-        # Include all label positions
-        for side, positions in label_positions.items():
-            for x, y in positions:
-                # Estimate label box size (conservative estimate)
-                label_width = 200  # Estimated max label width
-                label_height = 30  # Estimated label height
-                
-                if side == 'left':
-                    min_x = min(min_x, x - 10)
-                    max_x = max(max_x, x + label_width)
-                else:  # right
-                    min_x = min(min_x, x - label_width)
-                    max_x = max(max_x, x + 10)
-                
-                min_y = min(min_y, y - label_height // 2)
-                max_y = max(max_y, y + label_height // 2)
-        
-        # Add small padding
-        padding = 20
-        crop_x0 = max(0, int(min_x - padding))
-        crop_y0 = max(0, int(min_y - padding))
-        crop_x1 = min(img.width, int(max_x + padding))
-        crop_y1 = min(img.height, int(max_y + padding))
-        
-        # Ensure minimum size
-        min_width = 400
-        min_height = 400
-        if crop_x1 - crop_x0 < min_width:
-            center = (crop_x0 + crop_x1) // 2
-            crop_x0 = max(0, center - min_width // 2)
-            crop_x1 = min(img.width, center + min_width // 2)
-        if crop_y1 - crop_y0 < min_height:
-            center = (crop_y0 + crop_y1) // 2
-            crop_y0 = max(0, center - min_height // 2)
-            crop_y1 = min(img.height, center + min_height // 2)
-        
-        # Crop the image
-        if crop_x0 < crop_x1 and crop_y0 < crop_y1:
-            return img.crop((crop_x0, crop_y0, crop_x1, crop_y1))
+        # Crop the image with bounds check
+        if min_x < max_x and min_y < max_y:
+            return img.crop((int(min_x), int(min_y), int(max_x), int(max_y)))
         else:
             # If cropping fails, return original
             return img
@@ -781,13 +801,19 @@ class ImageAnnotator:
                       numbered_regions_by_image: Dict[str, List[Dict]]) -> List[Path]:
         
         annotated_paths = []
+        logger.info(f"batch_annotate called with {len(extracted_images)} images")
+        logger.info(f"Mappings: {all_mappings}")
+        logger.info(f"Keys in numbered_regions_by_image: {list(numbered_regions_by_image.keys())[:3]}")  # Show first 3 keys
         
         for img_info in extracted_images:
             image_path = img_info['file_path']
             figure_number = img_info.get('figure_number', '')
             
+            logger.info(f"Processing image: {image_path}")
+            
             # Get numbered regions for this image
             regions = numbered_regions_by_image.get(image_path, [])
+            logger.info(f"Found {len(regions)} regions for {image_path}")
             
             # Generate output filename
             original_name = Path(image_path).stem
@@ -799,15 +825,28 @@ class ImageAnnotator:
             else:
                 output_filename = f"{original_name}_annotated.png"
                 
-                # Annotate
-                annotated_path = self.annotate_image(
-                    image_path,
-                    regions,
-                    all_mappings,
-                    output_filename
-                )
+                # Get original dimensions if available
+                original_dims = None
+                if 'original_width' in img_info and 'original_height' in img_info:
+                    original_dims = (img_info['original_width'], img_info['original_height'])
                 
-                annotated_paths.append(annotated_path)
-                logger.info(f"Annotated image saved to {annotated_path}")
+                logger.info(f"Starting annotation for {image_path} with {len(regions)} regions")
+                
+                try:
+                    # Annotate
+                    annotated_path = self.annotate_image(
+                        image_path,
+                        regions,
+                        all_mappings,
+                        output_filename,
+                        original_dims
+                    )
+                    
+                    annotated_paths.append(annotated_path)
+                    logger.info(f"Annotated image saved to {annotated_path}")
+                except Exception as e:
+                    logger.error(f"Failed to annotate {image_path}: {e}")
+                    # Keep original image if annotation fails
+                    annotated_paths.append(Path(image_path))
         
         return annotated_paths

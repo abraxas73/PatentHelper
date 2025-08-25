@@ -56,13 +56,22 @@
       <!-- Action Buttons -->
       <div class="action-buttons">
         <button 
-          v-if="!isCompleted"
+          v-if="!isCompleted && !showMappings"
           class="btn btn-primary"
           :disabled="!selectedFile || isProcessing"
-          @click="uploadFile"
+          @click="extractMappings"
         >
           <span v-if="isProcessing" class="loading"></span>
-          <span v-else>도면 추출 시작</span>
+          <span v-else>분석</span>
+        </button>
+        <button 
+          v-if="showMappings && !isCompleted"
+          class="btn btn-primary"
+          :disabled="isProcessing"
+          @click="processWithMappings"
+        >
+          <span v-if="isProcessing" class="loading"></span>
+          <span v-else>작업 시작</span>
         </button>
         <button 
           v-else
@@ -101,6 +110,126 @@
       </div>
       <div v-if="successMessage" class="success-message">
         ✅ {{ successMessage }}
+      </div>
+    </div>
+
+    <!-- Mapping Section -->
+    <div v-if="showMappings" class="mapping-section">
+      <h2>매핑 정보 편집</h2>
+      
+      <!-- Mapping Table - 2 Column Layout -->
+      <div class="mapping-table-container">
+        <div class="mapping-table two-column">
+          <table>
+            <thead>
+              <tr>
+                <th width="40">선택</th>
+                <th width="60">번호</th>
+                <th>명칭</th>
+                <th width="30"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(mapping, index) in editableMappingsFirstHalf" :key="index">
+                <td>
+                  <input 
+                    type="checkbox" 
+                    v-model="mapping.selected"
+                    :disabled="!mapping.label || mapping.label.trim() === ''"
+                  />
+                </td>
+                <td>{{ mapping.number }}</td>
+                <td>
+                  <input 
+                    type="text" 
+                    v-model="mapping.label"
+                    @input="() => { if(mapping.label && mapping.label.trim()) mapping.selected = true; }"
+                    placeholder="명칭 입력"
+                  />
+                </td>
+                <td>
+                  <button @click="removeMapping(editableMappings.indexOf(mapping))" class="btn btn-sm btn-danger btn-icon" title="삭제">×</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="mapping-table two-column">
+          <table>
+            <thead>
+              <tr>
+                <th width="40">선택</th>
+                <th width="60">번호</th>
+                <th>명칭</th>
+                <th width="30"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(mapping, index) in editableMappingsSecondHalf" :key="index">
+                <td>
+                  <input 
+                    type="checkbox" 
+                    v-model="mapping.selected"
+                    :disabled="!mapping.label || mapping.label.trim() === ''"
+                  />
+                </td>
+                <td>{{ mapping.number }}</td>
+                <td>
+                  <input 
+                    type="text" 
+                    v-model="mapping.label"
+                    @input="() => { if(mapping.label && mapping.label.trim()) mapping.selected = true; }"
+                    placeholder="명칭 입력"
+                  />
+                </td>
+                <td>
+                  <button @click="removeMapping(editableMappings.indexOf(mapping))" class="btn btn-sm btn-danger btn-icon" title="삭제">×</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
+      <!-- Add New Mapping -->
+      <div class="add-mapping">
+        <h3>새 매핑 추가</h3>
+        <div class="add-mapping-form">
+          <input 
+            type="text" 
+            v-model="newMapping.number" 
+            placeholder="번호 (예: 100, 156a)"
+            class="input-number"
+          />
+          <input 
+            type="text" 
+            v-model="newMapping.label" 
+            placeholder="명칭 (예: 전원 버튼)"
+            class="input-label"
+          />
+          <button 
+            @click="addMapping" 
+            :disabled="!newMapping.number || !newMapping.label"
+            class="btn btn-success"
+          >
+            추가
+          </button>
+        </div>
+      </div>
+      
+      <!-- Extracted Images Preview -->
+      <div class="images-preview">
+        <h3>추출된 도면</h3>
+        <div class="image-grid">
+          <div v-for="img in extractedImages" :key="img.file_path" class="image-item">
+            <img 
+              :src="getImageUrl(img.file_path)" 
+              :alt="img.filename"
+              @click="openModal(img)"
+            />
+            <div class="image-caption">{{ img.filename }}</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -281,6 +410,13 @@ export default {
     const showHistory = ref(false)
     const jobHistory = ref([])
 
+    // Mapping related states
+    const showMappings = ref(false)
+    const extractedImages = ref([])
+    const detectedNumbers = ref([])
+    const editableMappings = ref([])
+    const newMapping = ref({ number: '', label: '' })
+
     const jobStatusText = computed(() => {
       const statusMap = {
         'QUEUED': '대기 중',
@@ -289,6 +425,17 @@ export default {
         'FAILED': '실패'
       }
       return statusMap[jobStatus.value] || jobStatus.value
+    })
+
+    // Split mappings into two columns
+    const editableMappingsFirstHalf = computed(() => {
+      const midpoint = Math.ceil(editableMappings.value.length / 2)
+      return editableMappings.value.slice(0, midpoint)
+    })
+
+    const editableMappingsSecondHalf = computed(() => {
+      const midpoint = Math.ceil(editableMappings.value.length / 2)
+      return editableMappings.value.slice(midpoint)
     })
 
     const handleFileSelect = (event) => {
@@ -471,6 +618,210 @@ export default {
     const closeModal = () => {
       modalOpen.value = false
       selectedImage.value = null
+    }
+
+    const extractMappings = async () => {
+      if (!selectedFile.value) return
+
+      isProcessing.value = true
+      errorMessage.value = ''
+      successMessage.value = ''
+      processingTime.value = 0
+
+      // Start timer
+      processingTimer.value = setInterval(() => {
+        processingTime.value += 1
+      }, 1000)
+
+      try {
+        // Create FormData for mapping extraction
+        const formData = new FormData()
+        formData.append('file', selectedFile.value)
+        
+        // Extract mappings from PDF
+        const response = await axios.post(`${config.API_URL}/extract-mappings`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          },
+          timeout: 300000 // 5 minutes timeout
+        })
+
+        // Store uploaded file info
+        uploadedFile.value = selectedFile.value
+
+        // Process mapping response
+        if (response.data) {
+          extractedImages.value = response.data.extracted_images || []
+          detectedNumbers.value = response.data.detected_numbers || []
+          
+          // Initialize editable mappings with extracted mappings
+          const mappings = response.data.number_mappings || {}
+          editableMappings.value = []
+          
+          // Add detected numbers with their mappings
+          detectedNumbers.value.forEach(num => {
+            editableMappings.value.push({
+              number: num,
+              label: mappings[num] || '',
+              selected: !!mappings[num] // Auto-select if has mapping
+            })
+          })
+          
+          // Add any additional mappings not in detected numbers
+          Object.keys(mappings).forEach(num => {
+            if (!detectedNumbers.value.includes(num)) {
+              editableMappings.value.push({
+                number: num,
+                label: mappings[num],
+                selected: true
+              })
+            }
+          })
+          
+          showMappings.value = true
+          successMessage.value = '매핑 정보를 추출했습니다. 확인 후 처리를 진행하세요.'
+        }
+
+      } catch (error) {
+        console.error('Mapping extraction error:', error)
+        errorMessage.value = error.response?.data?.detail || '매핑 추출 중 오류가 발생했습니다.'
+      } finally {
+        isProcessing.value = false
+        stopTimer()
+      }
+    }
+
+    const processWithMappings = async () => {
+      isProcessing.value = true
+      errorMessage.value = ''
+      successMessage.value = ''
+      processingTime.value = 0
+      
+      // Start timer to show processing
+      processingTimer.value = setInterval(() => {
+        processingTime.value += 1
+      }, 1000)
+      
+      progressMessage.value = 'OCR 작업 시작 중...'
+      progress.value = 10
+
+      try {
+        // Collect selected mappings
+        const selectedMappings = {}
+        let selectedCount = 0
+        editableMappings.value.forEach(mapping => {
+          if (mapping.selected && mapping.label && mapping.label.trim()) {
+            selectedMappings[mapping.number] = mapping.label.trim()
+            selectedCount++
+          }
+        })
+        
+        progressMessage.value = `OCR로 도면에서 숫자 인식 중... (${selectedCount}개 매핑 적용 예정)`
+        progress.value = 30
+
+        // Process with selected mappings (including OCR)
+        const response = await axios.post(`${config.API_URL}/process-with-mappings`, {
+          pdf_filename: uploadedFile.value.name,
+          mappings: selectedMappings
+        }, {
+          timeout: 300000 // 5 minutes timeout for OCR processing (increased from 2 minutes)
+        })
+
+        // Process annotated images
+        if (response.data.annotated_images) {
+          annotatedImages.value = response.data.annotated_images.map(img => {
+            const imgPath = typeof img === 'string' ? img : img.toString()
+            const filename = imgPath.includes('/') ? imgPath.split('/').pop() : imgPath
+            return {
+              url: `${config.API_URL}/images/${filename}`,
+              key: filename
+            }
+          })
+        }
+        
+        // Keep extracted images for display
+        images.value = extractedImages.value.map(img => {
+          if (typeof img === 'object' && img.file_path) {
+            const filename = img.file_path.split('/').pop()
+            return {
+              url: `${config.API_URL}/images/${filename}`,
+              key: filename
+            }
+          }
+          return img
+        })
+
+        numberMappings.value = selectedMappings
+        isCompleted.value = true
+        showMappings.value = false
+        stopTimer()
+        progressMessage.value = ''
+        progress.value = 100
+        successMessage.value = `도면 처리가 완료되었습니다! (처리 시간: ${processingTime.value}초)`
+
+        // Store in job history
+        const jobData = {
+          jobId: 'local-' + Date.now(),
+          fileName: uploadedFile.value.name,
+          status: 'COMPLETED',
+          timestamp: new Date().toISOString(),
+          results: {
+            extracted_images: extractedImages.value,
+            annotated_images: annotatedImages.value,
+            number_mappings: selectedMappings
+          }
+        }
+        
+        const history = JSON.parse(localStorage.getItem('jobHistory') || '[]')
+        history.unshift(jobData)
+        if (history.length > 50) history.pop()
+        localStorage.setItem('jobHistory', JSON.stringify(history))
+
+      } catch (error) {
+        console.error('Processing error:', error)
+        errorMessage.value = error.response?.data?.detail || '처리 중 오류가 발생했습니다.'
+        stopTimer()
+      } finally {
+        isProcessing.value = false
+      }
+    }
+
+    const addMapping = () => {
+      if (newMapping.value.number && newMapping.value.label) {
+        // Check if number already exists
+        const existingIndex = editableMappings.value.findIndex(
+          m => m.number === newMapping.value.number
+        )
+        
+        if (existingIndex >= 0) {
+          // Update existing mapping
+          editableMappings.value[existingIndex].label = newMapping.value.label
+          editableMappings.value[existingIndex].selected = true
+        } else {
+          // Add new mapping
+          editableMappings.value.push({
+            number: newMapping.value.number,
+            label: newMapping.value.label,
+            selected: true
+          })
+        }
+        
+        // Clear input
+        newMapping.value = { number: '', label: '' }
+      }
+    }
+
+    const removeMapping = (index) => {
+      editableMappings.value.splice(index, 1)
+    }
+
+    const getImageUrl = (imagePath) => {
+      if (typeof imagePath === 'object' && imagePath.file_path) {
+        const filename = imagePath.file_path.split('/').pop()
+        return `${config.API_URL}/images/${filename}`
+      }
+      const filename = imagePath.split('/').pop()
+      return `${config.API_URL}/images/${filename}`
     }
 
     const generatePDF = async (pdfType) => {
@@ -705,16 +1056,27 @@ export default {
       jobStatusText,
       jobMessage,
       jobProgress,
+      showMappings,
+      extractedImages,
+      detectedNumbers,
+      editableMappings,
+      editableMappingsFirstHalf,
+      editableMappingsSecondHalf,
+      newMapping,
       handleFileSelect,
       handleDrop,
       removeFile,
       formatFileSize,
       uploadFile,
+      extractMappings,
+      processWithMappings,
+      addMapping,
+      removeMapping,
       openModal,
       closeModal,
       generatePDF,
       isGeneratingPDF,
-      uploadedFile,
+      getImageUrl,
       showHistory,
       jobHistory,
       formatDate,
@@ -1099,5 +1461,212 @@ export default {
 
 .mapping-value {
   flex: 1;
+}
+
+/* Mapping Section Styles */
+.mapping-section {
+  margin-top: 30px;
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.mapping-section h2 {
+  margin-bottom: 20px;
+  color: #1e293b;
+}
+
+.mapping-info {
+  margin-bottom: 20px;
+  padding: 15px;
+  background: #f8fafc;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.mapping-table-container {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 30px;
+}
+
+.mapping-table {
+  overflow-x: auto;
+}
+
+.mapping-table.two-column {
+  flex: 1;
+}
+
+/* Responsive design for smaller screens */
+@media (max-width: 768px) {
+  .mapping-table-container {
+    flex-direction: column;
+    gap: 10px;
+  }
+}
+
+.mapping-table table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+}
+
+.mapping-table th {
+  background: #f1f5f9;
+  padding: 6px 10px;  /* Reduced from 12px */
+  text-align: left;
+  font-weight: 600;
+  font-size: 13px;  /* Reduced font size */
+  color: #475569;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.mapping-table td {
+  padding: 2px 8px;  /* Further reduced from 4px 10px */
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 13px;  /* Reduced font size */
+  vertical-align: middle;  /* Center content vertically */
+}
+
+.mapping-table input[type="checkbox"] {
+  cursor: pointer;
+  width: 16px;  /* Reduced from 18px */
+  height: 16px;  /* Reduced from 18px */
+}
+
+.mapping-table input[type="text"] {
+  width: 100%;
+  padding: 3px 8px;  /* Reduced from 6px 10px */
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-size: 13px;  /* Reduced from 14px */
+  transition: border-color 0.2s;
+}
+
+.mapping-table input[type="text"]:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.btn-sm {
+  padding: 2px 6px;  /* Reduced padding */
+  font-size: 10px;  /* Smaller font to fit in one line */
+  line-height: 1;  /* Compact line height */
+  min-height: 20px;  /* Smaller minimum height */
+  white-space: nowrap;  /* Prevent text wrapping */
+  display: inline-flex;  /* Use flexbox for centering */
+  align-items: center;  /* Center text vertically */
+  justify-content: center;  /* Center text horizontally */
+}
+
+.btn-sm.btn-icon {
+  padding: 1px;  /* Minimal padding for icon */
+  width: 18px;  /* Fixed width */
+  height: 18px;  /* Fixed height */
+  min-height: 18px;  /* Override minimum height */
+  font-size: 16px;  /* Larger font for × symbol */
+  font-weight: bold;  /* Bold × symbol */
+  border-radius: 3px;  /* Smaller border radius */
+}
+
+.btn-sm.btn-danger {
+  background: #ef4444;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-sm.btn-danger:hover {
+  background: #dc2626;
+}
+
+.add-mapping {
+  margin-bottom: 20px;  /* Reduced from 30px */
+  padding: 12px 15px;  /* Reduced from 20px */
+  background: #f8fafc;
+  border-radius: 6px;
+}
+
+.add-mapping h3 {
+  margin-bottom: 10px;  /* Reduced from 15px */
+  font-size: 14px;  /* Reduced from 16px */
+  color: #334155;
+}
+
+.add-mapping-form {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.add-mapping-form .input-number {
+  width: 120px;  /* Reduced from 150px */
+  padding: 4px 8px;  /* Reduced from 8px 12px */
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-size: 13px;  /* Reduced from 14px */
+}
+
+.add-mapping-form .input-label {
+  flex: 1;
+  padding: 4px 8px;  /* Reduced from 8px 12px */
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-size: 13px;  /* Reduced from 14px */
+}
+
+.add-mapping-form input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.images-preview {
+  margin-top: 30px;
+}
+
+.images-preview h3 {
+  margin-bottom: 15px;
+  font-size: 18px;
+  color: #334155;
+}
+
+.images-preview .image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.images-preview .image-item {
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.images-preview .image-item:hover {
+  transform: scale(1.05);
+}
+
+.images-preview .image-item img {
+  width: 100%;
+  height: 150px;
+  object-fit: contain;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 5px;
+}
+
+.images-preview .image-caption {
+  margin-top: 5px;
+  font-size: 12px;
+  color: #64748b;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

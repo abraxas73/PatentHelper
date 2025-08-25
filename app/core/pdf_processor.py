@@ -139,8 +139,36 @@ class PDFProcessor:
         """Check if page likely contains a drawing"""
         text = page.extract_text() or ""
         
-        # Check for drawing indicators - expanded keywords for better first page detection
-        drawing_keywords = ['도면', '도 ', 'Fig', 'Figure', '그림', 'Drawing', '【도', '[도', 
+        # Check for text patterns that indicate it's NOT a drawing page
+        # Pages with mapping descriptions usually have these patterns
+        non_drawing_patterns = [
+            '부호의 설명',
+            '도면 부호의 설명',
+            '참조 부호의 설명',
+            '도면의 주요 부분',
+            '부호 설명',
+            '명세서',
+            '청구범위',
+            '요약',
+            '배경기술',
+            '발명의 상세한 설명'
+        ]
+        
+        # If page has these patterns, it's likely a text page, not a drawing
+        if any(pattern in text for pattern in non_drawing_patterns):
+            logger.info(f"Page contains text description patterns, not a drawing")
+            return False
+        
+        # Check if page has substantial continuous text (more than 500 chars of continuous text)
+        # Drawing pages usually have scattered labels, not paragraphs
+        text_lines = text.split('\n')
+        has_long_text = any(len(line) > 100 for line in text_lines)
+        if has_long_text and len(text) > 1000:
+            logger.info(f"Page has substantial continuous text ({len(text)} chars), not a drawing")
+            return False
+        
+        # Check for drawing indicators - specific figure references
+        drawing_keywords = ['도 ', 'Fig', 'Figure', '그림', 'Drawing', '【도', '[도', 
                             '도1', '도2', '도3', '도4', '도5', '도6', '도7', '도8', '도9',
                             '제1도', '제2도', '제3도', '제4도', '제5도']
         has_drawing_keyword = any(keyword in text for keyword in drawing_keywords)
@@ -163,25 +191,38 @@ class PDFProcessor:
         
         # Low text density suggests it might be a drawing
         text_density = len(text) / (page.width * page.height) if page.width and page.height else 0
-        low_text_density = text_density < 0.005  # More strict threshold
+        low_text_density = text_density < 0.003  # Stricter threshold
         
         # Check if text is mainly short labels (typical in drawings)
         words = page.extract_words() if hasattr(page, 'extract_words') else []
         if words:
-            avg_word_length = sum(len(w.get('text', '')) for w in words) / len(words)
-            has_short_labels = avg_word_length < 5  # Short words typical in drawings
+            # Count actual drawing-like labels (numbers, short references)
+            drawing_labels = 0
+            for word in words:
+                word_text = word.get('text', '')
+                # Check if it's a typical drawing label (number or very short)
+                if word_text.isdigit() or (len(word_text) <= 3 and not word_text.isalpha()):
+                    drawing_labels += 1
+            
+            # If more than 30% of words are drawing-like labels
+            has_drawing_labels = (drawing_labels / len(words)) > 0.3 if len(words) > 0 else False
         else:
-            has_short_labels = False
+            has_drawing_labels = False
         
         # Page is likely a drawing if:
-        # 1. Has drawing keywords AND (low text OR short labels), OR
-        # 2. Has embedded images, OR
-        # 3. Has many significant rectangles (>3), OR
-        # 4. Has curves and low text density
-        return (has_drawing_keyword and (low_text_density or has_short_labels)) or \
-               has_images or \
-               significant_rects > 3 or \
-               (has_curves and low_text_density)
+        # 1. Has embedded images, OR
+        # 2. Has many significant rectangles (>5) with low text, OR
+        # 3. Has curves and very low text density, OR
+        # 4. Has drawing keywords AND drawing labels AND low text density
+        is_drawing = has_images or \
+                    (significant_rects > 5 and low_text_density) or \
+                    (has_curves and low_text_density) or \
+                    (has_drawing_keyword and has_drawing_labels and text_density < 0.01)
+        
+        if is_drawing:
+            logger.info(f"Page identified as drawing - images:{has_images}, rects:{significant_rects}, curves:{has_curves}, labels:{has_drawing_labels}")
+        
+        return is_drawing
     
     def _find_drawing_area(self, page) -> tuple:
         """Find the main drawing area, excluding text-heavy regions"""
