@@ -263,26 +263,43 @@ const goBack = () => {
   router.push('/')
 }
 
-const downloadPdf = () => {
+const downloadPdf = async () => {
   if (!jobData.value || !jobData.value.annotatedPdf) {
     console.error('PDF URL not found')
     return
   }
   
-  // Create PDF URL
-  const pdfUrl = `${API_BASE_URL}/images/${jobData.value.annotatedPdf}`
-  
-  // Create a temporary anchor element to trigger download
-  const link = document.createElement('a')
-  link.href = pdfUrl
-  
-  // Extract filename from URL or use default
-  const filename = jobData.value.annotatedPdf.split('/').pop() || 'annotated.pdf'
-  link.download = filename
-  
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
+  try {
+    // Create PDF URL
+    const pdfUrl = `${API_BASE_URL}/images/${jobData.value.annotatedPdf}`
+    
+    // Fetch the PDF as blob
+    const response = await fetch(pdfUrl)
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    
+    const blob = await response.blob()
+    
+    // Create blob URL and download
+    const blobUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    
+    // Extract filename from URL or use default
+    const filename = jobData.value.annotatedPdf.split('/').pop() || 'annotated.pdf'
+    link.download = filename
+    
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    
+    // Clean up the blob URL
+    window.URL.revokeObjectURL(blobUrl)
+  } catch (error) {
+    console.error('PDF download failed:', error)
+    alert('PDF 다운로드에 실패했습니다. 다시 시도해주세요.')
+  }
 }
 
 const loadJobResult = async () => {

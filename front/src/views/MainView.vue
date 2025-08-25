@@ -1310,24 +1310,41 @@ export default {
       })
     }
 
-    const downloadPdf = () => {
+    const downloadPdf = async () => {
       if (!annotatedPdfUrl.value) {
         errorMessage.value = 'PDF 파일을 찾을 수 없습니다.'
         return
       }
       
-      // Create a temporary anchor element to trigger download
-      const link = document.createElement('a')
-      link.href = annotatedPdfUrl.value
-      
-      // Extract filename from URL or use default
-      const urlParts = annotatedPdfUrl.value.split('/')
-      const filename = urlParts[urlParts.length - 1] || 'annotated.pdf'
-      link.download = filename
-      
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
+      try {
+        // Fetch the PDF as blob
+        const response = await fetch(annotatedPdfUrl.value)
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
+        
+        const blob = await response.blob()
+        
+        // Create blob URL and download
+        const blobUrl = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = blobUrl
+        
+        // Extract filename from URL or use default
+        const urlParts = annotatedPdfUrl.value.split('/')
+        const filename = urlParts[urlParts.length - 1] || 'annotated.pdf'
+        link.download = filename
+        
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        
+        // Clean up the blob URL
+        window.URL.revokeObjectURL(blobUrl)
+      } catch (error) {
+        console.error('PDF download failed:', error)
+        errorMessage.value = 'PDF 다운로드에 실패했습니다. 다시 시도해주세요.'
+      }
     }
 
     const trackProcessingJob = (job) => {
