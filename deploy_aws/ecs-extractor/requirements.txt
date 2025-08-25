@@ -1,12 +1,5 @@
 # Lightweight requirements for mapping extraction (no OCR/PyTorch)
 pypdfium2==4.26.0
 pdfplumber==0.10.3
-PyPDF2==3.0.1
 Pillow==11.0.0
-numpy==2.1.0
-opencv-python==4.10.0.84
-reportlab==4.0.7
 boto3==1.35.17
-pydantic==2.10.4
-pydantic-settings==2.7.1
-python-dotenv==1.0.0

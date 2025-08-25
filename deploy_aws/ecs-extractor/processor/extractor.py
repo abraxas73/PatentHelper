@@ -138,8 +138,8 @@ def extract_mappings(job_id, s3_key):
             text_analyzer = TextAnalyzer()
             number_mappings = text_analyzer.extract_number_mappings(full_text)
             
-            # Detect numbers in text (without OCR on images)
-            detected_numbers = text_analyzer.extract_drawing_numbers(full_text)
+            # Detect numbers from the mappings we extracted
+            detected_numbers = list(number_mappings.keys()) if number_mappings else []
             
             processing_time = time.time() - start_time
             
