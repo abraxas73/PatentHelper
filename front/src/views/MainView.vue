@@ -333,33 +333,72 @@ export default {
       }, 1000)
 
       try {
-        // Convert file to base64
-        const fileBase64 = await fileToBase64(selectedFile.value)
-        
-        // Upload file
-        const response = await axios.post(`${config.API_URL}/upload`, {
-          file: fileBase64,
-          filename: selectedFile.value.name,
-          userId: 'web-user'
-        })
+        if (config.isLocal) {
+          // Local development - use FormData
+          const formData = new FormData()
+          formData.append('file', selectedFile.value)
+          
+          const response = await axios.post(`${config.API_URL}/process`, formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data'
+            },
+            onUploadProgress: (progressEvent) => {
+              const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+              progress.value = percentCompleted
+            }
+          })
+          
+          // Local response format
+          if (response.data.extracted_images) {
+            images.value = response.data.extracted_images.map(img => ({
+              url: `${config.API_URL}/images/${img.filename}`,
+              filename: img.filename,
+              ...img
+            }))
+          }
+          
+          if (response.data.annotated_images) {
+            annotatedImages.value = response.data.annotated_images.map(img => ({
+              url: `${config.API_URL}/images/${img.filename}`,
+              filename: img.filename,
+              ...img
+            }))
+          }
+          
+          numberMappings.value = response.data.number_mappings || {}
+          successMessage.value = `성공적으로 ${images.value.length}개의 도면을 추출했습니다. 처리 시간: ${response.data.processing_time || processingTime.value}초`
+          isProcessing.value = false
+          isCompleted.value = true
+          stopTimer()
+          
+        } else {
+          // AWS production - use base64
+          const fileBase64 = await fileToBase64(selectedFile.value)
+          
+          const response = await axios.post(`${config.API_URL}/upload`, {
+            file: fileBase64,
+            filename: selectedFile.value.name,
+            userId: 'web-user'
+          })
 
-        currentJobId.value = response.data.jobId
-        jobStatus.value = response.data.status
-        
-        // Save to history
-        saveToHistory({
-          jobId: response.data.jobId,
-          fileName: selectedFile.value.name,
-          status: response.data.status,
-          createdAt: Date.now()
-        })
-        
-        // Start checking job status
-        checkJobStatus()
+          currentJobId.value = response.data.jobId
+          jobStatus.value = response.data.status
+          
+          // Save to history
+          saveToHistory({
+            jobId: response.data.jobId,
+            fileName: selectedFile.value.name,
+            status: response.data.status,
+            createdAt: Date.now()
+          })
+          
+          // Start checking job status
+          checkJobStatus()
+        }
         
       } catch (error) {
         console.error('Error:', error)
-        errorMessage.value = error.response?.data?.error || '업로드 중 오류가 발생했습니다.'
+        errorMessage.value = error.response?.data?.error || error.response?.data?.detail || '업로드 중 오류가 발생했습니다.'
         isProcessing.value = false
         stopTimer()
       }
@@ -397,7 +436,8 @@ export default {
             isCompleted.value = true  // Mark as completed
             updateHistoryStatus(currentJobId.value, 'COMPLETED')
             // Show result URL
-            successMessage.value = `처리 완료! 결과 페이지: ${window.location.origin}/#/job/${currentJobId.value}`
+            const baseUrl = config.isLocal ? 'http://localhost:3000' : window.location.origin
+            successMessage.value = `처리 완료! 결과 페이지: ${baseUrl}/#/job/${currentJobId.value}`
           } else if (response.data.status === 'FAILED') {
             errorMessage.value = response.data.message || '처리 중 오류가 발생했습니다.'
             stopStatusCheck()
@@ -501,27 +541,32 @@ export default {
           localStorage.setItem('jobHistory', JSON.stringify(localHistory))
         }
         
-        // Try to load from server
-        const response = await axios.get(`${config.API_URL}/history?limit=50`)
-        if (response.data && response.data.history) {
-          // Normalize server data to match local data structure
-          const serverHistory = response.data.history.map(job => ({
-            ...job,
-            fileName: job.fileName || job.filename // Ensure fileName field exists
-          }))
-          
-          // Merge server history with local history (remove duplicates)
-          const mergedHistory = [...serverHistory]
-          
-          // Add local items that don't exist on server
-          localHistory.forEach(localJob => {
-            if (!mergedHistory.find(j => j.jobId === localJob.jobId)) {
-              mergedHistory.push(localJob)
-            }
-          })
-          
-          jobHistory.value = mergedHistory.slice(0, 50) // Keep only latest 50
+        // Only try to load from server if on AWS
+        if (!config.isLocal) {
+          const response = await axios.get(`${config.API_URL}/history?limit=50`)
+          if (response.data && response.data.history) {
+            // Normalize server data to match local data structure
+            const serverHistory = response.data.history.map(job => ({
+              ...job,
+              fileName: job.fileName || job.filename // Ensure fileName field exists
+            }))
+            
+            // Merge server history with local history (remove duplicates)
+            const mergedHistory = [...serverHistory]
+            
+            // Add local items that don't exist on server
+            localHistory.forEach(localJob => {
+              if (!mergedHistory.find(j => j.jobId === localJob.jobId)) {
+                mergedHistory.push(localJob)
+              }
+            })
+            
+            jobHistory.value = mergedHistory.slice(0, 50) // Keep only latest 50
+          } else {
+            jobHistory.value = localHistory
+          }
         } else {
+          // Local development - just use localStorage
           jobHistory.value = localHistory
         }
       } catch (error) {

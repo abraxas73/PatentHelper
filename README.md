@@ -29,7 +29,7 @@
 ## 🚀 빠른 시작
 
 ### 프로덕션 사용 (권장)
-**AWS 서버리스 버전**: https://d1k8m3z5xkr8hb.cloudfront.net
+**AWS 서버리스 버전**: https://patent.sncbears.cloud
 
 1. 웹사이트 접속
 2. PDF 파일 업로드 (드래그&드롭 또는 파일 선택)

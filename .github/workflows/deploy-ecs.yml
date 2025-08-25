@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - 'deploy_aws/ecs/**'
-      # - 'app/**'  임시 주석, 당분간 AWS ECS 배포 중단.
+      - 'app/**'
       - '.github/workflows/deploy-ecs.yml'
   workflow_dispatch:
 

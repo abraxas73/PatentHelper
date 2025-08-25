@@ -113,10 +113,22 @@ echo -e "${YELLOW}📦 Step 2: Build Frontend${NC}"
 cd ..
 cd front
 
-# Update config.js with API URL
+# Update config.js with API URL (dynamic configuration)
 cat > src/config.js <<EOF
+// API endpoint configuration
+const isProduction = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+
+// AWS API Gateway endpoint for production
+const AWS_API_URL = '${API_URL}'
+
+// Local FastAPI endpoint for development
+const LOCAL_API_URL = 'http://localhost:8000/api/v1'
+
 export default {
-  API_URL: '${API_URL}'
+  API_URL: isLocal ? LOCAL_API_URL : AWS_API_URL,
+  isProduction,
+  isLocal
 }
 EOF
 

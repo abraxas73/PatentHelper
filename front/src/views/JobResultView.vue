@@ -191,6 +191,11 @@ const getImageUrl = (image) => {
   if (typeof image === 'object' && image.url) {
     return image.url
   }
+  // For local development, use the local API endpoint
+  if (config.isLocal) {
+    const filename = typeof image === 'string' ? image : image.filename
+    return `${API_BASE_URL}/images/${encodeURIComponent(filename)}`
+  }
   // Otherwise fallback to old behavior (for backward compatibility)
   return `${API_BASE_URL}/images/${encodeURIComponent(image)}`
 }
@@ -258,6 +263,13 @@ const loadJobResult = async () => {
   error.value = null
   
   try {
+    // For local development, we don't have job results endpoint
+    if (config.isLocal) {
+      error.value = '로컬 환경에서는 작업 결과 페이지를 지원하지 않습니다. 메인 페이지에서 직접 처리해주세요.'
+      loading.value = false
+      return
+    }
+    
     const response = await axios.get(`${API_BASE_URL}/result/${jobId.value}`)
     jobData.value = response.data
     
