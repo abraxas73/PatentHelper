@@ -7,6 +7,11 @@ import logging
 import re
 from app.services.image_processor import ImageProcessor
 
+# Fix for Pillow 10.0.0+ compatibility
+# ANTIALIAS was removed in Pillow 10.0.0, replaced with LANCZOS
+if not hasattr(Image, 'ANTIALIAS'):
+    Image.ANTIALIAS = Image.LANCZOS
+
 logger = logging.getLogger(__name__)
 
 

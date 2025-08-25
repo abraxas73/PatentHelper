@@ -124,7 +124,23 @@ dmypy.json
 cython_debug/
 # AWS deployment temp files
 deploy_aws/ecs/app/
-deploy_aws/lambda/**/*.zip
-deploy_aws/lambda/*/
 deploy_aws/.aws-sam/
+deploy_aws/infrastructure/.aws-sam/
+
+# Lambda function temporary files
+deploy_aws/lambda/**/*.zip
+deploy_aws/lambda/**/__pycache__/
+deploy_aws/lambda/**/*.pyc
+deploy_aws/lambda/**/.pytest_cache/
+deploy_aws/lambda/**/package/
+deploy_aws/lambda/**/python/
+deploy_aws/lambda/**/dist/
+deploy_aws/lambda/**/build/
+deploy_aws/lambda/**/.env
+deploy_aws/lambda/**/.DS_Store
+
+# But track Lambda function source code
+!deploy_aws/lambda/**/handler.py
+!deploy_aws/lambda/**/requirements.txt
+!deploy_aws/lambda/**/*.json
 
