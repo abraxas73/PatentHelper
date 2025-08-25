@@ -167,22 +167,6 @@ cd deploy_aws
 ./update-lambda.sh
 ```
 
-### 개발/테스트 환경 (OCI 서버)
-- **URL**: https://patent-drawing.sncbears.cloud
-- **서버**: OCI Compute (Ubuntu)
-- **컨테이너**: Docker Compose + Nginx
-
-#### OCI 서버 배포 명령어
-```bash
-# 앱 배포 (코드 변경 후)
-./deploy.sh
-
-# SSL 인증서 설정/갱신
-./init-ssl.sh
-
-# 서버 초기 설정 (최초 1회)
-bash deploy_server/setup-server.sh
-```
 
 ### 📊 성능 및 비용 최적화
 - **Cold Start**: ~5-10초 (vs 이전 90-120초)
@@ -206,7 +190,6 @@ aws logs tail /aws/lambda/patent-helper-upload --follow
 
 ### 🌐 서비스 URL
 - **프로덕션**: https://d1k8m3z5xkr8hb.cloudfront.net
-- **테스트**: https://patent-drawing.sncbears.cloud
 - **로컬**: http://localhost:3000
 
 ## 🎯 최근 주요 개선사항
@@ -280,7 +263,6 @@ aws logs tail /aws/lambda/patent-helper-upload --follow
 
 - **이슈 리포팅**: GitHub Issues
 - **기술 문의**: [이메일 주소 또는 연락처]
-- **데모**: https://patent.sncbears.cloud
 
 ---
 

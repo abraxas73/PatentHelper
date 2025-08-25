@@ -99,10 +99,6 @@ PatentHelper/
 │   │   └── requirements.txt  # Python 의존성
 │   ├── frontend/             # 프론트엔드 빌드 설정
 │   └── scripts/              # 배포 스크립트
-├── deploy_server/            # 전용 서버 배포 (OCI)
-│   ├── docker-compose.prod.yml
-│   ├── nginx.conf
-│   └── deploy.sh
 ├── data/                     # 로컬 개발 데이터
 ├── logs/                     # 로컬 개발 로그
 ├── tests/                    # 테스트 코드
