@@ -422,9 +422,27 @@
               >
                 진행 상황
               </button>
-              <router-link v-else :to="`/job/${job.jobId}`" class="view-button">
-                보기
+              <button
+                v-else-if="job.status === 'COMPLETED' && job.processType === 'EXTRACTION'"
+                @click="trackProcessingJob(job)"
+                class="view-button analysis-complete-button"
+              >
+                매핑 편집
+              </button>
+              <router-link 
+                v-else-if="job.status === 'COMPLETED' && job.processType === 'OCR'"
+                :to="`/job/${job.jobId}`" 
+                class="view-button completed-button"
+              >
+                결과 보기
               </router-link>
+              <button
+                v-else
+                @click="trackProcessingJob(job)"
+                class="view-button"
+              >
+                상세 보기
+              </button>
             </div>
           </div>
         </div>
@@ -1754,6 +1772,22 @@ export default {
 
 .view-button.processing-button:hover {
   background: #138496;
+}
+
+.view-button.analysis-complete-button {
+  background: #0369a1;
+}
+
+.view-button.analysis-complete-button:hover {
+  background: #075985;
+}
+
+.view-button.completed-button {
+  background: #28a745;
+}
+
+.view-button.completed-button:hover {
+  background: #218838;
 }
 
 /* Completed Area Styles */
