@@ -8,6 +8,7 @@ on:
       - 'app/core/**'
       - 'app/services/image_extractor.py'
       - 'app/services/image_annotator.py'
+      - 'app/services/pdf_generator.py'
       - '.github/workflows/deploy-ecs-ocr.yml'
 
 env:
