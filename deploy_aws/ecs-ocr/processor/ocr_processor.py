@@ -178,9 +178,16 @@ def process_with_ocr(job_id, pdf_filename):
         # Re-upload extracted images to job's result folder
         extracted_s3_keys = []
         for img_info in extracted_images:
-            filename = os.path.basename(img_info['file_path'])
+            # img_info['file_path']가 dict나 다른 타입일 수 있으므로 문자열로 변환
+            file_path = img_info.get('file_path')
+            if isinstance(file_path, dict):
+                # file_path가 dict인 경우 실제 경로를 추출
+                file_path = file_path.get('path') or file_path.get('file_path') or str(file_path)
+            file_path = str(file_path)
+            
+            filename = os.path.basename(file_path)
             s3_key = f"results/{job_id}/extracted/{filename}"
-            s3.upload_file(img_info['file_path'], BUCKET_NAME, s3_key)
+            s3.upload_file(file_path, BUCKET_NAME, s3_key)
             extracted_s3_keys.append(s3_key)
         
         # Generate annotated PDF
