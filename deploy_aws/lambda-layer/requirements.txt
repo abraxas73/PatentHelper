@@ -1,0 +1,11 @@
+pypdfium2==4.26.0
+pdfplumber==0.10.3
+PyPDF2==3.0.1
+opencv-python==4.10.0.84
+Pillow==11.0.0
+numpy==2.1.0
+reportlab==4.0.7
+pydantic==2.10.4
+pydantic-settings==2.7.1
+python-dotenv==1.0.0
+# EasyOCR는 너무 크므로 제외하고, OCR은 ECS에서만 수행

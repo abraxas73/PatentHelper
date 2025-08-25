@@ -165,6 +165,7 @@ Resources:
       Auth:
         ApiKeyRequired: false
 
+
   # Lambda Functions
   UploadFunction:
     Type: AWS::Serverless::Function
@@ -271,9 +272,66 @@ Resources:
             RestApiId: !Ref ApiGateway
             Path: /images/{proxy+}
             Method: GET
+  
+  ExtractMappingsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub patent-helper-extract-mappings-${Environment}
+      CodeUri: ../lambda/extract-mappings/
+      Handler: handler.lambda_handler
+      Timeout: 120
+      MemorySize: 1024
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /extract-mappings
+            Method: POST
       Policies:
-        - S3ReadPolicy:
+        - S3CrudPolicy:
             BucketName: !Ref DocumentBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref JobTable
+  
+  ProcessMappingsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub patent-helper-process-mappings-${Environment}
+      CodeUri: ../lambda/process-mappings/
+      Handler: handler.lambda_handler
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          CLUSTER_NAME: !Ref ECSCluster
+          TASK_DEFINITION: !Ref OCRTaskDefinition
+          SUBNET_IDS: !Ref PublicSubnet
+          SECURITY_GROUP_ID: !Ref ECSSecurityGroup
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /process-with-mappings
+            Method: POST
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref DocumentBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref JobTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ecs:RunTask
+              Resource:
+                - !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/patent-helper-ocr-${Environment}:*'
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource:
+                - !GetAtt ECSExecutionRole.Arn
+                - !GetAtt ECSTaskRole.Arn
 
   # ECS Cluster for OCR Processing
   ECSCluster:

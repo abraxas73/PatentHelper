@@ -54,4 +54,22 @@ manifest_hash = ""
 packagetype = "Zip"
 functions = ["ImageProxyFunction"]
 
+[function_build_definitions.264638c1-29ae-4da1-9b59-24ced2959c6f]
+codeuri = "/Users/seunguk.kang/Repos/PatentHelper/deploy_aws/lambda/extract-mappings"
+runtime = "python3.12"
+architecture = "x86_64"
+handler = "handler.lambda_handler"
+manifest_hash = ""
+packagetype = "Zip"
+functions = ["ExtractMappingsFunction"]
+
+[function_build_definitions.c378f5f1-1c69-4a52-95f0-0c014b38e758]
+codeuri = "/Users/seunguk.kang/Repos/PatentHelper/deploy_aws/lambda/process-mappings"
+runtime = "python3.12"
+architecture = "x86_64"
+handler = "handler.lambda_handler"
+manifest_hash = ""
+packagetype = "Zip"
+functions = ["ProcessMappingsFunction"]
+
 [layer_build_definitions]

@@ -652,13 +652,131 @@ export default {
     }
 
     const checkJobStatus = async () => {
-      // Local server processes synchronously, no need for status checks
-      // This function is kept for compatibility but won't be called in local mode
+      // For AWS environment - poll for extraction status
+      if (!currentJobId.value || config.isLocal) return
+
+      statusCheckInterval.value = setInterval(async () => {
+        try {
+          const response = await axios.get(`${config.API_URL}/status/${currentJobId.value}`)
+          
+          jobStatus.value = response.data.status
+          jobMessage.value = response.data.message
+          jobProgress.value = response.data.progress || 0
+          
+          if (response.data.status === 'COMPLETED') {
+            // Get extraction results
+            await getJobResults()
+            stopStatusCheck()
+            stopTimer()
+            
+            // Show mappings for editing
+            showMappings.value = true
+            isProcessing.value = false
+            
+          } else if (response.data.status === 'FAILED') {
+            errorMessage.value = response.data.message || '처리 중 오류가 발생했습니다.'
+            stopStatusCheck()
+            stopTimer()
+            isProcessing.value = false
+          }
+        } catch (error) {
+          console.error('Status check error:', error)
+        }
+      }, 2000) // Check every 2 seconds
+    }
+
+    const checkJobStatusForOCR = async () => {
+      // For AWS environment - poll for OCR processing status
+      if (!currentJobId.value || config.isLocal) return
+
+      statusCheckInterval.value = setInterval(async () => {
+        try {
+          const response = await axios.get(`${config.API_URL}/status/${currentJobId.value}`)
+          
+          jobStatus.value = response.data.status
+          jobMessage.value = response.data.message
+          jobProgress.value = response.data.progress || 0
+          
+          if (response.data.status === 'COMPLETED') {
+            // Get OCR results
+            await getOCRJobResults()
+            stopStatusCheck()
+            stopTimer()
+            isProcessing.value = false
+            isCompleted.value = true
+            
+            // Show result URL
+            const baseUrl = config.isLocal ? 'http://localhost:3000' : window.location.origin
+            successMessage.value = `처리 완료! 결과 페이지: ${baseUrl}/#/job/${currentJobId.value}`
+            
+          } else if (response.data.status === 'FAILED') {
+            errorMessage.value = response.data.message || 'OCR 처리 중 오류가 발생했습니다.'
+            stopStatusCheck()
+            stopTimer()
+            isProcessing.value = false
+          }
+        } catch (error) {
+          console.error('OCR status check error:', error)
+        }
+      }, 2000) // Check every 2 seconds
     }
 
     const getJobResults = async () => {
-      // Local server returns results directly in upload response
-      // This function is kept for compatibility but won't be called in local mode
+      // For AWS environment - get extraction results
+      if (config.isLocal) return
+      
+      try {
+        const response = await axios.get(`${config.API_URL}/result/${currentJobId.value}`)
+        
+        console.log('Extraction result response:', response.data)
+        
+        // Store extracted images and mappings
+        extractedImages.value = response.data.extractedImages || []
+        editableMappings.value = response.data.numberMappings ? 
+          Object.entries(response.data.numberMappings).map(([number, label]) => ({
+            number,
+            label,
+            selected: true
+          })) : []
+        
+      } catch (error) {
+        console.error('Error getting extraction results:', error)
+        errorMessage.value = '결과를 가져오는 중 오류가 발생했습니다.'
+      }
+    }
+
+    const getOCRJobResults = async () => {
+      // For AWS environment - get OCR processing results
+      if (config.isLocal) return
+      
+      try {
+        const response = await axios.get(`${config.API_URL}/result/${currentJobId.value}`)
+        
+        console.log('OCR result response:', response.data)
+        
+        // Store final results
+        images.value = response.data.extractedImages || []
+        annotatedImages.value = response.data.annotatedImages || []
+        numberMappings.value = response.data.numberMappings || {}
+        
+        successMessage.value = `성공적으로 ${images.value.length}개의 도면을 처리했습니다. 처리 시간: ${response.data.processingTime || processingTime.value}초`
+        
+        // Store in job history
+        saveToHistory({
+          jobId: currentJobId.value,
+          fileName: uploadedFile.value?.name || 'Unknown',
+          status: 'COMPLETED',
+          createdAt: Date.now(),
+          extractedImages: images.value,
+          annotatedImages: annotatedImages.value,
+          numberMappings: numberMappings.value,
+          processingTime: processingTime.value
+        })
+        
+      } catch (error) {
+        console.error('Error getting OCR results:', error)
+        errorMessage.value = 'OCR 결과를 가져오는 중 오류가 발생했습니다.'
+      }
     }
 
     const stopStatusCheck = () => {
@@ -699,57 +817,71 @@ export default {
       }, 1000)
 
       try {
-        // Create FormData for mapping extraction
-        const formData = new FormData()
-        formData.append('file', selectedFile.value)
+        let response
         
-        // Extract mappings from PDF
-        const response = await axios.post(`${config.API_URL}/extract-mappings`, formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          },
-          timeout: 300000 // 5 minutes timeout
-        })
+        if (config.isLocal) {
+          // Local environment - use FormData
+          const formData = new FormData()
+          formData.append('file', selectedFile.value)
+          
+          response = await axios.post(`${config.API_URL}/extract-mappings`, formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data'
+            },
+            timeout: 300000 // 5 minutes timeout
+          })
+        } else {
+          // AWS environment - use base64
+          const fileBase64 = await fileToBase64(selectedFile.value)
+          
+          response = await axios.post(`${config.API_URL}/extract-mappings`, {
+            file: fileBase64,
+            filename: selectedFile.value.name
+          })
+        }
 
         // Store uploaded file info
         uploadedFile.value = selectedFile.value
 
         // Process mapping response
         if (response.data) {
-          extractedImages.value = response.data.extracted_images || []
-          detectedNumbers.value = response.data.detected_numbers || []
-          
-          // Initialize editable mappings with extracted mappings
-          const mappings = response.data.number_mappings || {}
-          editableMappings.value = []
-          
-          // Add detected numbers with their mappings
-          detectedNumbers.value.forEach(num => {
-            editableMappings.value.push({
-              number: num,
-              label: mappings[num] || '',
-              selected: !!mappings[num] // Auto-select if has mapping
-            })
-          })
-          
-          // Add any additional mappings not in detected numbers
-          Object.keys(mappings).forEach(num => {
-            if (!detectedNumbers.value.includes(num)) {
+          if (config.isLocal) {
+            // Local environment returns data directly
+            extractedImages.value = response.data.extracted_images || []
+            detectedNumbers.value = response.data.detected_numbers || []
+            
+            // Initialize editable mappings with extracted mappings
+            const mappings = response.data.number_mappings || {}
+            editableMappings.value = []
+            
+            // Add all mappings to editable list
+            Object.keys(mappings).forEach(num => {
               editableMappings.value.push({
                 number: num,
                 label: mappings[num],
                 selected: true
               })
+            })
+            
+            showMappings.value = true
+            successMessage.value = '매핑 정보를 추출했습니다. 확인 후 처리를 진행하세요.'
+            
+          } else {
+            // AWS environment returns jobId, need to poll for status
+            if (response.data.jobId) {
+              currentJobId.value = response.data.jobId
+              jobStatus.value = response.data.status || 'PROCESSING'
+              jobMessage.value = response.data.message || '매핑 추출 중...'
+              
+              // Start polling for AWS job status
+              await checkJobStatus()
             }
-          })
-          
-          showMappings.value = true
-          successMessage.value = '매핑 정보를 추출했습니다. 확인 후 처리를 진행하세요.'
+          }
         }
 
       } catch (error) {
         console.error('Mapping extraction error:', error)
-        errorMessage.value = error.response?.data?.detail || '매핑 추출 중 오류가 발생했습니다.'
+        errorMessage.value = error.response?.data?.error || error.response?.data?.detail || '매핑 추출 중 오류가 발생했습니다.'
       } finally {
         isProcessing.value = false
         stopTimer()
@@ -798,47 +930,61 @@ export default {
           pdf_filename: uploadedFile.value.name,
           mappings: selectedMappings
         }, {
-          timeout: 300000 // 5 minutes timeout for OCR processing (increased from 2 minutes)
+          timeout: 300000 // 5 minutes timeout for OCR processing
         })
 
-        // Process annotated images
-        if (response.data.annotated_images) {
-          annotatedImages.value = response.data.annotated_images.map(img => {
-            const imgPath = typeof img === 'string' ? img : img.toString()
-            const filename = imgPath.includes('/') ? imgPath.split('/').pop() : imgPath
-            return {
-              url: `${config.API_URL}/images/${filename}`,
-              key: filename
-            }
-          })
-        }
-        
-        // Keep extracted images for display
-        images.value = extractedImages.value.map(img => {
-          if (typeof img === 'object' && img.file_path) {
-            const filename = img.file_path.split('/').pop()
-            return {
-              url: `${config.API_URL}/images/${filename}`,
-              key: filename
-            }
+        if (config.isLocal) {
+          // Local environment - direct results
+          if (response.data.annotated_images) {
+            annotatedImages.value = response.data.annotated_images.map(img => {
+              const imgPath = typeof img === 'string' ? img : img.toString()
+              const filename = imgPath.includes('/') ? imgPath.split('/').pop() : imgPath
+              return {
+                url: `${config.API_URL}/images/${filename}`,
+                key: filename
+              }
+            })
           }
-          return img
-        })
+          
+          // Keep extracted images for display
+          images.value = extractedImages.value.map(img => {
+            if (typeof img === 'object' && img.file_path) {
+              const filename = img.file_path.split('/').pop()
+              return {
+                url: `${config.API_URL}/images/${filename}`,
+                key: filename
+              }
+            }
+            return img
+          })
+          
+          numberMappings.value = selectedMappings
+          isCompleted.value = true
+          showMappings.value = false
+          stopTimer()
+          progressMessage.value = ''
+          progress.value = 100
+          successMessage.value = `도면 처리가 완료되었습니다! (처리 시간: ${processingTime.value}초)`
+          
+        } else {
+          // AWS environment - returns jobId, need to poll for status
+          if (response.data.jobId) {
+            currentJobId.value = response.data.jobId
+            jobStatus.value = response.data.status || 'PROCESSING'
+            jobMessage.value = response.data.message || 'OCR 처리 중...'
+            
+            // Start polling for AWS job status
+            showMappings.value = false
+            await checkJobStatusForOCR()
+          }
+        }
 
-        numberMappings.value = selectedMappings
-        isCompleted.value = true
-        showMappings.value = false
-        stopTimer()
-        progressMessage.value = ''
-        progress.value = 100
-        successMessage.value = `도면 처리가 완료되었습니다! (처리 시간: ${processingTime.value}초)`
-
-        // Store in job history using saveToHistory function
+        // Store in job history
         saveToHistory({
-          jobId: 'local-' + Date.now(),
+          jobId: config.isLocal ? 'local-' + Date.now() : currentJobId.value,
           fileName: uploadedFile.value.name,
-          status: 'COMPLETED',
-          createdAt: Date.now(),  // Use createdAt instead of timestamp for consistency
+          status: config.isLocal ? 'COMPLETED' : 'PROCESSING',
+          createdAt: Date.now(),
           extractedImages: extractedImages.value,
           annotatedImages: annotatedImages.value,
           numberMappings: selectedMappings,
@@ -847,10 +993,12 @@ export default {
 
       } catch (error) {
         console.error('Processing error:', error)
-        errorMessage.value = error.response?.data?.detail || '처리 중 오류가 발생했습니다.'
+        errorMessage.value = error.response?.data?.error || error.response?.data?.detail || '처리 중 오류가 발생했습니다.'
         stopTimer()
       } finally {
-        isProcessing.value = false
+        if (config.isLocal) {
+          isProcessing.value = false
+        }
       }
     }
 

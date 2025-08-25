@@ -64,10 +64,13 @@ echo "API URL: $API_URL"
 echo "Frontend Bucket: $FRONTEND_BUCKET"
 echo "CloudFront URL: $CLOUDFRONT_URL"
 
+# Save base directory
+BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 # Build and deploy frontend
 echo -e "${YELLOW}📦 Building Frontend${NC}"
 
-cd ../front
+cd $BASE_DIR/../front
 
 # Update config.js with dynamic configuration
 cat > src/config.js <<EOF
