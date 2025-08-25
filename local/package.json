@@ -1,0 +1,22 @@
+{
+  "name": "patent-helper-local",
+  "version": "1.0.0",
+  "description": "Patent Helper Local Web Application",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite --port 3001",
+    "build": "vite build",
+    "preview": "vite preview --port 3001"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "axios": "^1.11.0",
+    "vite": "^7.1.3",
+    "vue": "^3.5.19",
+    "vue-router": "^4.5.1"
+  }
+}

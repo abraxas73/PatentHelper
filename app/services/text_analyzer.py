@@ -8,18 +8,19 @@ logger = logging.getLogger(__name__)
 class TextAnalyzer:
     def __init__(self):
         # Patterns for extracting number-label mappings (부호의 설명 섹션)
+        # Now supports alphanumeric patterns like 156a, 156b
         self.patterns = {
-            'basic': r'(\d{1,4})\s*[:：]\s*([가-힣\w\s]+)',
-            'dash': r'(\d{1,4})\s*[-－]\s*([가-힣\w\s]+)',
-            'dots': r'(\d{1,4})\s*[\.…]+\s*([가-힣\w\s]+)',
-            'parenthesis': r'(\d{1,4})\s*\)\s*([가-힣\w\s]+)',
-            'korean_style': r'(\d{1,4})\s*은\s+([가-힣\w\s]+)',
-            'reference': r'참조\s*번호\s*(\d{1,4})\s*[:：]?\s*([가-힣\w\s]+)',
-            'symbol_list': r'<\s*(\d{1,4})\s*>\s*([가-힣\w\s]+)',
-            'bracket': r'\[\s*(\d{1,4})\s*\]\s*([가-힣\w\s]+)',
-            'comma_style': r'(\d{1,4})\s*[,，]\s*([가-힣\w\s]+)',
-            'space_only': r'^\s*(\d{1,4})\s+([가-힣][가-힣\w\s]+)',
-            'tab_style': r'(\d{1,4})\t+([가-힣\w\s]+)'
+            'basic': r'(\d{1,4}[a-zA-Z]?)\s*[:：]\s*([가-힣\w\s]+)',
+            'dash': r'(\d{1,4}[a-zA-Z]?)\s*[-－]\s*([가-힣\w\s]+)',
+            'dots': r'(\d{1,4}[a-zA-Z]?)\s*[\.…]+\s*([가-힣\w\s]+)',
+            'parenthesis': r'(\d{1,4}[a-zA-Z]?)\s*\)\s*([가-힣\w\s]+)',
+            'korean_style': r'(\d{1,4}[a-zA-Z]?)\s*은\s+([가-힣\w\s]+)',
+            'reference': r'참조\s*번호\s*(\d{1,4}[a-zA-Z]?)\s*[:：]?\s*([가-힣\w\s]+)',
+            'symbol_list': r'<\s*(\d{1,4}[a-zA-Z]?)\s*>\s*([가-힣\w\s]+)',
+            'bracket': r'\[\s*(\d{1,4}[a-zA-Z]?)\s*\]\s*([가-힣\w\s]+)',
+            'comma_style': r'(\d{1,4}[a-zA-Z]?)\s*[,，]\s*([가-힣\w\s]+)',
+            'space_only': r'^\s*(\d{1,4}[a-zA-Z]?)\s+([가-힣][가-힣\w\s]+)',
+            'tab_style': r'(\d{1,4}[a-zA-Z]?)\t+([가-힣\w\s]+)'
         }
         
         # Keywords that indicate part/component listings
@@ -195,7 +196,14 @@ class TextAnalyzer:
         if len(label) > 50:
             label = label[:50]
         
-        return label.strip()
+        label = label.strip()
+        
+        # Exclude non-component labels
+        excluded_labels = ['등록특허', '특허', '발명', '도면', '청구항', '명세서']
+        if label in excluded_labels:
+            return ''
+        
+        return label
     
     def _post_process_mappings(self, mappings: Dict[str, str]) -> Dict[str, str]:
         # Remove very short or very long labels
@@ -206,7 +214,15 @@ class TextAnalyzer:
         
         # Try to fill in missing sequential numbers if we have patterns
         # For example, if we have 110, 130, 140, try to find 120
-        numbers = sorted([int(n) for n in filtered.keys() if n.isdigit()])
+        # Also handle alphanumeric numbers like 156a, 156b
+        numeric_keys = []
+        for key in filtered.keys():
+            # Extract numeric part only
+            match = re.match(r'^(\d+)', key)
+            if match:
+                numeric_keys.append(int(match.group(1)))
+        
+        numbers = sorted(set(numeric_keys))
         if len(numbers) >= 2:
             # Find gaps in sequences
             for i in range(len(numbers) - 1):
@@ -256,11 +272,11 @@ class TextAnalyzer:
     def find_number_ranges(self, text: str) -> List[Tuple[str, str]]:
         ranges = []
         
-        # Pattern for number ranges (e.g., "110~120", "110-120")
+        # Pattern for number ranges (e.g., "110~120", "110-120", "156a~156c")
         patterns = [
-            r'(\d{1,3})\s*[~～]\s*(\d{1,3})',
-            r'(\d{1,3})\s*[-－]\s*(\d{1,3})',
-            r'(\d{1,3})\s*부터\s*(\d{1,3})'
+            r'(\d{1,3}[a-zA-Z]?)\s*[~～]\s*(\d{1,3}[a-zA-Z]?)',
+            r'(\d{1,3}[a-zA-Z]?)\s*[-－]\s*(\d{1,3}[a-zA-Z]?)',
+            r'(\d{1,3}[a-zA-Z]?)\s*부터\s*(\d{1,3}[a-zA-Z]?)'
         ]
         
         for pattern in patterns:
@@ -269,9 +285,14 @@ class TextAnalyzer:
                 start = match.group(1)
                 end = match.group(2)
                 
-                # Validate range
-                if start.isdigit() and end.isdigit():
-                    if int(start) < int(end):
+                # Validate range - extract numeric parts for comparison
+                start_num_match = re.match(r'^(\d+)', start)
+                end_num_match = re.match(r'^(\d+)', end)
+                
+                if start_num_match and end_num_match:
+                    start_num = int(start_num_match.group(1))
+                    end_num = int(end_num_match.group(1))
+                    if start_num <= end_num:
                         ranges.append((start, end))
         
         return ranges

@@ -157,8 +157,9 @@ class ImageExtractor:
             
             numbered_regions = []
             
-            # Pattern for reference numbers (typically 1-3 digits)
-            number_pattern = r'^\d{1,3}$'
+            # Pattern for reference numbers (typically 1-3 digits, with optional letter suffix)
+            # Now supports patterns like 156a, 156b
+            number_pattern = r'^\d{1,3}[a-zA-Z]?$'
             
             for (bbox, text, prob) in results:
                 # Lower threshold for better detection on first page
@@ -168,8 +169,8 @@ class ImageExtractor:
                 
                 text = text.strip()
                 
-                # Special debug for 900 and 600
-                if text in ['900', '600', '9', '6', '00', '0']:
+                # Special debug for 900 and 600 and alphanumeric patterns
+                if text in ['900', '600', '9', '6', '00', '0'] or re.match(r'\d+[a-zA-Z]', text):
                     logger.info(f"Found potential match: '{text}' with prob={prob:.3f} at bbox={bbox}")
                 
                 if re.match(number_pattern, text):

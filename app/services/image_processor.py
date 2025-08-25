@@ -4,6 +4,7 @@ from PIL import Image, ImageDraw
 from pathlib import Path
 from typing import Tuple, Optional
 import logging
+from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +13,8 @@ class ImageProcessor:
     """Process extracted images to detect and remove text regions"""
     
     def __init__(self):
-        pass
+        self.top_crop_ratio = settings.image_crop_top_ratio
+        self.bottom_crop_ratio = settings.image_crop_bottom_ratio
     
     def detect_text_regions(self, image: Image.Image) -> list:
         """Detect text regions in the image using edge detection and contour analysis"""
@@ -79,28 +81,38 @@ class ImageProcessor:
         
         return cropped
     
-    def remove_header_footer(self, image: Image.Image, header_ratio: float = 0.1, footer_ratio: float = 0.1) -> Image.Image:
+    def remove_header_footer(self, image: Image.Image, header_ratio: float = None, footer_ratio: float = None) -> Image.Image:
         """Remove typical header and footer regions from image"""
+        # Use environment variables if not provided
+        if header_ratio is None:
+            header_ratio = self.top_crop_ratio
+        if footer_ratio is None:
+            footer_ratio = self.bottom_crop_ratio
+            
         width, height = image.size
         
+        # Skip cropping if ratios are 0
+        if header_ratio == 0.0 and footer_ratio == 0.0:
+            return image
+            
         # Calculate crop boundaries
         top_crop = int(height * header_ratio)
         bottom_crop = int(height * (1 - footer_ratio))
         
-        # Analyze if regions contain mostly text
-        top_region = image.crop((0, 0, width, top_crop))
-        bottom_region = image.crop((0, bottom_crop, width, height))
+        y_start = 0
+        y_end = height
         
-        # Check if regions are mostly white (empty) or text
-        if self._is_text_region(top_region):
-            y_start = top_crop
-        else:
-            y_start = 0
-            
-        if self._is_text_region(bottom_region):
-            y_end = bottom_crop
-        else:
-            y_end = height
+        # Only analyze top region if header_ratio > 0
+        if header_ratio > 0:
+            top_region = image.crop((0, 0, width, top_crop))
+            if self._is_text_region(top_region):
+                y_start = top_crop
+        
+        # Only analyze bottom region if footer_ratio > 0    
+        if footer_ratio > 0:
+            bottom_region = image.crop((0, bottom_crop, width, height))
+            if self._is_text_region(bottom_region):
+                y_end = bottom_crop
         
         # Crop image
         if y_start > 0 or y_end < height:

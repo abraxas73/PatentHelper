@@ -224,12 +224,11 @@ class ImageAnnotator:
         for region in numbered_regions:
             number = region['number']
             
-            # Use mapping if exists, otherwise use default label
-            if number in number_mappings:
-                label = number_mappings[number]
-            else:
-                # Default label for unmapped numbers
-                label = f"{number}: (미정의)"
+            # Skip if no mapping exists for this number
+            if number not in number_mappings:
+                continue
+                
+            label = number_mappings[number]
             bbox = region['bbox']
             center = region['center']
             
@@ -790,23 +789,25 @@ class ImageAnnotator:
             # Get numbered regions for this image
             regions = numbered_regions_by_image.get(image_path, [])
             
-            if not regions:
-                logger.warning(f"No numbered regions found for {image_path}")
-                continue
-            
             # Generate output filename
             original_name = Path(image_path).stem
-            output_filename = f"{original_name}_annotated.png"
             
-            # Annotate
-            annotated_path = self.annotate_image(
-                image_path,
-                regions,
-                all_mappings,
-                output_filename
-            )
-            
-            annotated_paths.append(annotated_path)
-            logger.info(f"Annotated image saved to {annotated_path}")
+            if not regions:
+                logger.warning(f"No numbered regions found for {image_path}, using original image")
+                # Keep the original image in the list to maintain index alignment
+                annotated_paths.append(Path(image_path))
+            else:
+                output_filename = f"{original_name}_annotated.png"
+                
+                # Annotate
+                annotated_path = self.annotate_image(
+                    image_path,
+                    regions,
+                    all_mappings,
+                    output_filename
+                )
+                
+                annotated_paths.append(annotated_path)
+                logger.info(f"Annotated image saved to {annotated_path}")
         
         return annotated_paths

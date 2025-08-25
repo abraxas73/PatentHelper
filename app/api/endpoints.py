@@ -12,6 +12,7 @@ from app.services.image_extractor import ImageExtractor
 from app.services.text_analyzer import TextAnalyzer
 from app.services.image_annotator import ImageAnnotator
 from app.services.image_converter import ImageConverter
+from app.services.pdf_generator import PDFGenerator
 from app.models.schemas import ProcessingResult, ProcessingStatus, ErrorResponse
 from pydantic import BaseModel
 
@@ -90,6 +91,48 @@ async def process_patent_pdf(
                 numbered_regions_by_image
             )
             
+            # Store processing metadata for later PDF generation
+            # Create annotated images info with page numbers
+            annotated_images_info = []
+            for i, path in enumerate(annotated_paths):
+                # Extract page number from image filename if available
+                page_num = None
+                if extracted_images and i < len(extracted_images):
+                    if 'page_num' in extracted_images[i]:
+                        # Convert to Python int to avoid JSON serialization issues
+                        page_num = int(extracted_images[i]['page_num'])
+                
+                annotated_images_info.append({
+                    'file_path': str(path),
+                    'page_num': page_num
+                })
+            
+            # Save metadata for PDF generation
+            metadata_file = settings.upload_dir / f"{pdf_name}_metadata.json"
+            import json
+            import numpy as np
+            
+            # Custom JSON encoder to handle NumPy types
+            class NumpyEncoder(json.JSONEncoder):
+                def default(self, obj):
+                    if isinstance(obj, (np.integer, np.int32, np.int64)):
+                        return int(obj)
+                    elif isinstance(obj, (np.floating, np.float32, np.float64)):
+                        return float(obj)
+                    elif isinstance(obj, np.ndarray):
+                        return obj.tolist()
+                    elif isinstance(obj, Path):
+                        return str(obj)
+                    return super().default(obj)
+            
+            with open(metadata_file, 'w') as f:
+                json.dump({
+                    'pdf_path': str(pdf_path),
+                    'extracted_images': extracted_images,
+                    'annotated_images': annotated_images_info,
+                    'number_mappings': number_mappings
+                }, f, cls=NumpyEncoder)
+            
             # Prepare response
             processing_time = time.time() - start_time
             
@@ -153,6 +196,76 @@ async def list_images():
         })
     
     return {"images": images, "total": len(images)}
+
+
+class GeneratePDFRequest(BaseModel):
+    pdf_filename: str
+    pdf_type: str = "combined"  # "annotated" or "combined"
+
+
+@router.post("/generate-pdf")
+async def generate_pdf(request: GeneratePDFRequest):
+    """Generate PDF with annotated images"""
+    try:
+        pdf_generator = PDFGenerator()
+        pdf_name = Path(request.pdf_filename).stem
+        
+        # Load metadata
+        metadata_file = settings.upload_dir / f"{pdf_name}_metadata.json"
+        if not metadata_file.exists():
+            raise HTTPException(status_code=404, detail="Processing metadata not found. Please process the PDF first.")
+        
+        import json
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        original_pdf_path = Path(metadata['pdf_path'])
+        if not original_pdf_path.exists():
+            raise HTTPException(status_code=404, detail="Original PDF not found")
+        
+        # Generate PDF based on type
+        if request.pdf_type == "annotated":
+            output_path = pdf_generator.create_annotated_pdf(
+                original_pdf_path,
+                metadata['extracted_images'],  # Need this for page mapping and bbox info
+                metadata['annotated_images']
+            )
+        else:  # combined
+            output_path = pdf_generator.create_combined_pdf(
+                original_pdf_path,
+                metadata['extracted_images'],
+                metadata['annotated_images']
+            )
+        
+        if not output_path.exists():
+            raise HTTPException(status_code=500, detail="Failed to generate PDF")
+        
+        return {
+            "filename": output_path.name,
+            "path": str(output_path),
+            "size": output_path.stat().st_size
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/download-pdf/{filename}")
+async def download_pdf(filename: str):
+    """Download generated PDF file"""
+    pdf_path = Path("data/output/pdf") / filename
+    
+    if not pdf_path.exists():
+        raise HTTPException(status_code=404, detail="PDF file not found")
+    
+    return FileResponse(
+        path=pdf_path,
+        media_type='application/pdf',
+        filename=filename
+    )
 
 
 class ConvertRequest(BaseModel):

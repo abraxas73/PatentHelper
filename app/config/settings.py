@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     ocr_languages: Union[str, List[str]] = "ko,en"
     ocr_gpu: bool = False
     
+    # Image Processing
+    image_crop_top_ratio: float = 0.0  # 상단 무시 영역 비율 (0.0 = 0%, 0.1 = 10%)
+    image_crop_bottom_ratio: float = 0.0  # 하단 무시 영역 비율 (0.0 = 0%, 0.1 = 10%)
+    
     # Logging
     log_level: str = "INFO"
     log_file: Path = Path("logs/app.log")

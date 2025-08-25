@@ -1,0 +1,410 @@
+<template>
+  <div v-if="isOpen" class="modal-overlay" @click="handleOverlayClick">
+    <div class="modal-container" @click.stop>
+      <!-- Close button -->
+      <button class="modal-close" @click="close">✕</button>
+      
+      <!-- Image display -->
+      <div class="modal-image-wrapper">
+        <img :src="imageUrl" :alt="image.filename" />
+      </div>
+      
+      <!-- Image info -->
+      <div class="modal-info">
+        <h3>{{ image.figure_number || `페이지 ${image.original_page + 1}` }}</h3>
+        <p>{{ image.filename }} • {{ image.width }} × {{ image.height }}px</p>
+      </div>
+      
+      <!-- Download section -->
+      <div class="modal-actions">
+        <div class="format-selector">
+          <label>다운로드 형식:</label>
+          <select v-model="selectedFormat" class="format-select">
+            <option value="jpg">JPG (이미지)</option>
+            <option value="png">PNG (원본)</option>
+            <option value="svg">SVG (벡터)</option>
+            <option value="pdf">PDF (문서)</option>
+          </select>
+        </div>
+        
+        <div class="action-buttons">
+          <button class="btn btn-download" @click="download" :disabled="isDownloading">
+            <span v-if="isDownloading" class="loading"></span>
+            <span v-else>📥 다운로드</span>
+          </button>
+          <button class="btn btn-secondary" @click="close">닫기</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+import { ref, computed } from 'vue'
+import axios from 'axios'
+
+export default {
+  name: 'ImageModal',
+  props: {
+    isOpen: {
+      type: Boolean,
+      required: true
+    },
+    image: {
+      type: Object,
+      required: true
+    }
+  },
+  emits: ['close'],
+  setup(props, { emit }) {
+    const selectedFormat = ref('png')
+    const isDownloading = ref(false)
+    
+    const imageUrl = computed(() => {
+      if (!props.image) return ''
+      // If image has url property (from job results), use it directly
+      if (props.image.url) {
+        return props.image.url
+      }
+      // Otherwise fallback to filename based URL (from main page)
+      if (props.image.filename) {
+        return `/api/v1/images/${props.image.filename}`
+      }
+      return ''
+    })
+    
+    const close = () => {
+      emit('close')
+    }
+    
+    const handleOverlayClick = (e) => {
+      if (e.target === e.currentTarget) {
+        close()
+      }
+    }
+    
+    const download = async () => {
+      if (!props.image) return
+      
+      isDownloading.value = true
+      
+      try {
+        let downloadUrl = ''
+        let filename = ''
+        
+        // Determine filename
+        if (props.image.filename) {
+          filename = props.image.filename.split('.')[0]
+        } else if (props.image.figure_number) {
+          filename = props.image.figure_number
+        } else {
+          filename = 'image'
+        }
+        
+        if (selectedFormat.value === 'png') {
+          // Direct download for PNG
+          downloadUrl = imageUrl.value
+          filename += '.png'
+          
+          // For S3 presigned URLs, download directly
+          const link = document.createElement('a')
+          link.href = downloadUrl
+          link.download = filename
+          // Add target="_blank" for cross-origin URLs
+          if (downloadUrl.includes('amazonaws.com')) {
+            link.target = '_blank'
+          }
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+        } else {
+          // For format conversion, try to use backend if available
+          try {
+            const response = await axios.post('/api/v1/convert', {
+              filename: props.image.filename || filename,
+              format: selectedFormat.value
+            }, {
+              responseType: 'blob'
+            })
+            
+            // Create blob URL for download
+            const blob = new Blob([response.data], {
+              type: response.headers['content-type']
+            })
+            downloadUrl = URL.createObjectURL(blob)
+            filename += `.${selectedFormat.value}`
+            
+            // Trigger download
+            const link = document.createElement('a')
+            link.href = downloadUrl
+            link.download = filename
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            
+            // Clean up blob URL
+            URL.revokeObjectURL(downloadUrl)
+          } catch (conversionError) {
+            // If conversion fails, fallback to direct download with warning
+            console.warn('Format conversion not available, downloading as PNG:', conversionError)
+            alert('형식 변환이 지원되지 않습니다. PNG 형식으로 다운로드됩니다.')
+            
+            const link = document.createElement('a')
+            link.href = imageUrl.value
+            link.download = filename + '.png'
+            if (imageUrl.value.includes('amazonaws.com')) {
+              link.target = '_blank'
+            }
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+          }
+        }
+        
+      } catch (error) {
+        console.error('Download failed:', error)
+        alert('다운로드 중 오류가 발생했습니다.')
+      } finally {
+        isDownloading.value = false
+      }
+    }
+    
+    return {
+      selectedFormat,
+      isDownloading,
+      imageUrl,
+      close,
+      handleOverlayClick,
+      download
+    }
+  }
+}
+</script>
+
+<style scoped>
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal-container {
+  background: white;
+  border-radius: 16px;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+  animation: slideUp 0.3s ease;
+  position: relative;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.modal-close {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  background: rgba(0, 0, 0, 0.5);
+  color: white;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  z-index: 10;
+}
+
+.modal-close:hover {
+  background: rgba(0, 0, 0, 0.7);
+  transform: scale(1.1);
+}
+
+.modal-image-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow: auto;
+  background: #f8fafc;
+  border-radius: 16px 16px 0 0;
+}
+
+.modal-image-wrapper img {
+  max-width: 100%;
+  max-height: 60vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+}
+
+.modal-info {
+  padding: 20px 30px;
+  border-bottom: 1px solid #e5e7eb;
+  background: white;
+}
+
+.modal-info h3 {
+  font-size: 1.5rem;
+  color: #2d3748;
+  margin-bottom: 8px;
+}
+
+.modal-info p {
+  color: #718096;
+  font-size: 0.95rem;
+}
+
+.modal-actions {
+  padding: 20px 30px;
+  background: white;
+  border-radius: 0 0 16px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+
+.format-selector {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.format-selector label {
+  font-weight: 600;
+  color: #4a5568;
+}
+
+.format-select {
+  padding: 8px 12px;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 1rem;
+  color: #2d3748;
+  background: white;
+  cursor: pointer;
+  transition: border-color 0.3s ease;
+  min-width: 150px;
+}
+
+.format-select:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-download {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.btn-download:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+}
+
+.btn-download:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: #e5e7eb;
+  color: #4a5568;
+}
+
+.btn-secondary:hover {
+  background: #cbd5e1;
+}
+
+.loading {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: white;
+  animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .modal-container {
+    max-width: 95vw;
+    max-height: 95vh;
+  }
+  
+  .modal-actions {
+    flex-direction: column;
+    gap: 15px;
+  }
+  
+  .format-selector {
+    width: 100%;
+    justify-content: space-between;
+  }
+  
+  .action-buttons {
+    width: 100%;
+  }
+  
+  .action-buttons .btn {
+    flex: 1;
+  }
+}
+</style>
