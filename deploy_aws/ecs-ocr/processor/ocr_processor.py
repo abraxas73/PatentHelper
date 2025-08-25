@@ -193,7 +193,13 @@ def process_with_ocr(job_id, pdf_filename):
         
         # 페이지별 이미지 정보 준비
         image_info_list = []
-        for i, (extracted_key, annotated_path) in enumerate(zip(extracted_images, annotated_paths)):
+        for i, (extracted_item, annotated_path) in enumerate(zip(extracted_images, annotated_paths)):
+            # extracted_item이 dict인 경우 key를 추출
+            if isinstance(extracted_item, dict):
+                extracted_key = extracted_item.get('key') or extracted_item.get('s3_key') or extracted_item.get('file_path', '')
+            else:
+                extracted_key = str(extracted_item)
+            
             # S3 키에서 페이지 정보 추출
             # 예: results/job-id/page1_img1.png -> page1
             import re
