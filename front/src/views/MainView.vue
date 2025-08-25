@@ -469,6 +469,7 @@ export default {
     
     // Serverless specific
     const currentJobId = ref(null)
+    const extractionJobId = ref(null) // Store extraction job ID separately
     const jobStatus = ref('')
     const jobMessage = ref('')
     const jobProgress = ref(0)
@@ -884,6 +885,7 @@ export default {
             // AWS environment returns jobId, need to poll for status
             if (response.data.jobId) {
               currentJobId.value = response.data.jobId
+              extractionJobId.value = response.data.jobId  // Store extraction job ID
               jobStatus.value = response.data.status || 'PROCESSING'
               jobMessage.value = response.data.message || '매핑 추출 중...'
               
@@ -946,8 +948,8 @@ export default {
         }
         
         // Include extraction job ID if available (for AWS environment)
-        if (currentJobId.value && !config.isLocal) {
-          requestData.extraction_job_id = currentJobId.value
+        if (extractionJobId.value && !config.isLocal) {
+          requestData.extraction_job_id = extractionJobId.value
         }
         
         // Include extracted images for AWS environment
@@ -1301,6 +1303,11 @@ export default {
       
       // Set current job ID
       currentJobId.value = job.jobId
+      
+      // If this is an extraction job (has extractedImages), store as extraction job
+      if (job.extractedImages) {
+        extractionJobId.value = job.jobId
+      }
       
       // Update job status info
       jobStatus.value = job.status
