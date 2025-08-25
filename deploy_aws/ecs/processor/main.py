@@ -287,8 +287,9 @@ def extract_mappings(job_id, s3_key):
             image_extractor = ImageExtractor(output_dir)
             text_analyzer = TextAnalyzer()
             
-            # Filter and process images
-            extracted_images = image_extractor.filter_patent_drawings(raw_images)
+            # Extract and save images
+            pdf_name = Path(s3_key).stem
+            extracted_images = image_extractor.extract_and_save_images(raw_images, pdf_name)
             
             # Upload extracted images to S3
             update_job_status(job_id, 'PROCESSING',
@@ -339,7 +340,6 @@ def extract_mappings(job_id, s3_key):
             )
             
             # Also store as metadata for reuse
-            pdf_name = Path(s3_key).stem
             table.put_item(
                 Item={
                     'jobId': f"{pdf_name}_metadata",
