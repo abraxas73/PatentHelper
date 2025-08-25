@@ -270,32 +270,22 @@ const downloadPdf = async () => {
   }
   
   try {
-    // Create PDF URL
-    const pdfUrl = `${API_BASE_URL}/images/${jobData.value.annotatedPdf}`
+    // Create CloudFront URL for direct S3 access
+    const cloudFrontUrl = 'https://d38f9rplbkj0f2.cloudfront.net'
+    const pdfUrl = `${cloudFrontUrl}/${jobData.value.annotatedPdf}`
     
-    // Fetch the PDF as blob
-    const response = await fetch(pdfUrl)
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    
-    const blob = await response.blob()
-    
-    // Create blob URL and download
-    const blobUrl = window.URL.createObjectURL(blob)
+    // Direct download from CloudFront/S3
     const link = document.createElement('a')
-    link.href = blobUrl
+    link.href = pdfUrl
     
     // Extract filename from URL or use default
     const filename = jobData.value.annotatedPdf.split('/').pop() || 'annotated.pdf'
     link.download = filename
+    link.target = '_blank'
     
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-    
-    // Clean up the blob URL
-    window.URL.revokeObjectURL(blobUrl)
   } catch (error) {
     console.error('PDF download failed:', error)
     alert('PDF 다운로드에 실패했습니다. 다시 시도해주세요.')

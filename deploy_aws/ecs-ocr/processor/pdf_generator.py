@@ -360,7 +360,7 @@ class PDFGenerator:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             
             # Create PDF with reportlab
-            c = canvas.Canvas(str(output_path), pagesize=A4)
+            c = canvas.Canvas(str(output_path), pagesize=A4, compress=0)  # Disable compression for better compatibility
             a4_width, a4_height = A4
             
             # Add title page if provided
@@ -381,6 +381,20 @@ class PDFGenerator:
                 try:
                     # Open image and get dimensions
                     img = Image.open(img_path)
+                    
+                    # Convert RGBA to RGB if necessary
+                    if img.mode in ('RGBA', 'LA', 'P'):
+                        # Create a white background
+                        rgb_img = Image.new('RGB', img.size, (255, 255, 255))
+                        # Paste the image on the white background
+                        if img.mode == 'P':
+                            img = img.convert('RGBA')
+                        if img.mode == 'RGBA' or img.mode == 'LA':
+                            rgb_img.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else img.split()[1])
+                        else:
+                            rgb_img.paste(img)
+                        img = rgb_img
+                    
                     img_width, img_height = img.size
                     
                     # Calculate scaling to fit A4
@@ -396,15 +410,27 @@ class PDFGenerator:
                     x_offset = (a4_width - new_width) / 2
                     y_offset = (a4_height - new_height) / 2
                     
-                    # Draw the image
-                    c.drawImage(
-                        str(img_path),
-                        x_offset,
-                        y_offset,
-                        width=new_width,
-                        height=new_height,
-                        preserveAspectRatio=True
-                    )
+                    # Save image to temporary file in JPEG format for better compatibility
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_file:
+                        temp_path = tmp_file.name
+                        img.save(temp_path, 'JPEG', quality=95)
+                    
+                    try:
+                        # Draw the image using the temporary JPEG file
+                        c.drawImage(
+                            temp_path,
+                            x_offset,
+                            y_offset,
+                            width=new_width,
+                            height=new_height,
+                            preserveAspectRatio=True,
+                            mask=None  # Explicitly disable mask for better compatibility
+                        )
+                    finally:
+                        # Clean up temporary file
+                        import os
+                        os.unlink(temp_path)
                     
                     c.showPage()
                     
