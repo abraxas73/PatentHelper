@@ -104,7 +104,7 @@
           <div v-if="jobProgress > 0" class="progress-bar">
             <div class="progress-fill" :style="{ width: jobProgress + '%' }"></div>
           </div>
-          <div v-if="jobStatus === 'COMPLETED'" class="result-link">
+          <div v-if="jobStatus === 'COMPLETED' && isProcessingOCR" class="result-link">
             <router-link :to="`/job/${currentJobId}`" class="btn-link">
               🔗 결과 페이지로 이동
             </router-link>
@@ -485,6 +485,7 @@ export default {
     const savedMappings = ref([])  // 재작업을 위한 매핑 정보 저장
     const isReworkMode = ref(false)  // 재작업 모드 플래그
     const selectedResultTab = ref('original')  // 재작업 모드에서 결과 탭 선택
+    const isProcessingOCR = ref(false)  // OCR 처리 중인지 구분
 
     const jobStatusText = computed(() => {
       const statusMap = {
@@ -988,6 +989,7 @@ export default {
             
             // Start polling for AWS job status
             showMappings.value = false
+            isProcessingOCR.value = true  // Mark as OCR processing
             await checkJobStatusForOCR()
           }
         }
@@ -1234,6 +1236,7 @@ export default {
       extractedImages.value = []
       showMappings.value = false
       isReworkMode.value = false
+      isProcessingOCR.value = false
       errorMessage.value = ''
       successMessage.value = ''
       isProcessing.value = false
@@ -1358,6 +1361,7 @@ export default {
       extractedImages,
       detectedNumbers,
       editableMappings,
+      isProcessingOCR,
       editableMappingsFirstHalf,
       editableMappingsSecondHalf,
       newMapping,
