@@ -190,53 +190,11 @@ def process_with_ocr(job_id, pdf_filename):
         
         pdf_generator = PDFGenerator()
         
-        # 원본 PDF 경로 생성
-        original_pdf_path = temp_dir / f"{pdf_filename}"
-        
-        # 원본 PDF를 S3에서 다운로드
-        s3.download_file(BUCKET_NAME, f"uploads/{pdf_filename}", str(original_pdf_path))
-        
-        # extracted_images와 annotated_images 정보 준비
-        extracted_img_info = []
-        annotated_img_info = []
-        
-        for i, (extracted_key, annotated_path) in enumerate(zip(extracted_images, annotated_paths)):
-            # 페이지 정보 추출 (S3 키에서)
-            # 예: results/job-id/page1_img1.png -> page1
-            import re
-            match = re.search(r'page(\d+)_', extracted_key)
-            if match:
-                page_num = int(match.group(1)) - 1  # 0-indexed
-            else:
-                page_num = i  # fallback
-            
-            extracted_img_info.append({
-                'file_path': extracted_key,
-                'original_page': page_num,
-                'image_index': i
-            })
-            
-            annotated_img_info.append({
-                'file_path': str(annotated_path),
-                'original_page': page_num,
-                'image_index': i
-            })
-        
-        # 원본 PDF 구조를 유지하면서 어노테이션된 페이지만 교체
-        try:
-            pdf_path = pdf_generator.create_annotated_pdf(
-                original_pdf_path=original_pdf_path,
-                extracted_images=extracted_img_info,
-                annotated_images=annotated_img_info,
-                output_filename=f"{job_id}_annotated.pdf"
-            )
-        except Exception as e:
-            logger.warning(f"Failed to create annotated PDF with page replacement: {e}")
-            # Fallback to simple image-based PDF
-            pdf_path = pdf_generator.create_from_images(
-                annotated_paths,
-                output_path=temp_dir / f"{job_id}_annotated.pdf"
-            )
+        # 단순 이미지 기반 PDF 생성 (권한 문제 회피)
+        pdf_path = pdf_generator.create_from_images(
+            annotated_paths,
+            output_path=temp_dir / f"{job_id}_annotated.pdf"
+        )
         
         # Upload PDF to S3
         pdf_s3_key = f"results/{job_id}/annotated_document.pdf"
