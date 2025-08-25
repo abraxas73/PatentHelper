@@ -191,8 +191,8 @@ def process_with_ocr(job_id, pdf_filename):
         pdf_generator = PDFGenerator()
         pdf_path = pdf_generator.create_from_images(
             annotated_paths,
-            output_path=temp_dir / f"{job_id}_annotated.pdf",
-            title=f"특허 도면 분석 결과 - {pdf_filename}"
+            output_path=temp_dir / f"{job_id}_annotated.pdf"
+            # title 파라미터 제거 - 첫 페이지에 불필요한 제목 페이지 생성 방지
         )
         
         # Upload PDF to S3
