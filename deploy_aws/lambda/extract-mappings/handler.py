@@ -47,6 +47,7 @@ def lambda_handler(event, context):
                 's3_key': pdf_key,
                 'filename': filename,
                 'status': 'PROCESSING',
+                'processType': 'EXTRACTION',  # 매핑 추출 작업
                 'message': '매핑 정보를 추출하는 중...',
                 'progress': 5,
                 'createdAt': timestamp,

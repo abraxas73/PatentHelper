@@ -38,9 +38,9 @@ def update_job_status(job_id, status, **kwargs):
         table = dynamodb.Table(TABLE_NAME)
         
         # Build update expression
-        update_parts = ['#status = :status']
+        update_parts = ['#status = :status', 'processType = :processType']
         expression_names = {'#status': 'status'}
-        expression_values = {':status': status}
+        expression_values = {':status': status, ':processType': 'OCR'}
         
         # Add optional fields
         for key, value in kwargs.items():

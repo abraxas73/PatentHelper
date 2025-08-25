@@ -408,10 +408,10 @@
                     @click.stop="trackProcessingJob(job)"
                     title="클릭하여 진행 상황 보기"
                   >
-                    {{ getStatusText(job.status) }}
+                    {{ getStatusText(job.status, job.processType) }}
                   </span>
-                  <span v-else class="status-badge" :class="job.status">
-                    {{ getStatusText(job.status) }}
+                  <span v-else class="status-badge" :class="job.status === 'COMPLETED' && job.processType === 'EXTRACTION' ? 'analysis-complete' : job.status">
+                    {{ getStatusText(job.status, job.processType) }}
                   </span>
                 </div>
               </div>
@@ -1201,7 +1201,21 @@ export default {
       return date.toLocaleString('ko-KR')
     }
 
-    const getStatusText = (status) => {
+    const getStatusText = (status, processType) => {
+      // processType이 있으면 더 구체적인 상태 표시
+      if (status === 'PROCESSING' && processType) {
+        if (processType === 'EXTRACTION') {
+          return '매핑 추출 중'
+        } else if (processType === 'OCR') {
+          return 'OCR 처리 중'
+        }
+      }
+      
+      // EXTRACTION이 완료되었지만 OCR은 안한 경우
+      if (status === 'COMPLETED' && processType === 'EXTRACTION') {
+        return '분석 완료'
+      }
+      
       const statusMap = {
         'QUEUED': '대기 중',
         'PROCESSING': '처리 중',
@@ -1503,6 +1517,12 @@ export default {
 .status-badge.COMPLETED {
   background: #d1fae5;
   color: #065f46;
+}
+
+.status-badge.analysis-complete {
+  background: #e0f2fe;
+  color: #0369a1;
+  font-weight: 600;
 }
 
 .status-badge.FAILED {

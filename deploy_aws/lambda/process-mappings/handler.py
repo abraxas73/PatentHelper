@@ -45,6 +45,7 @@ def lambda_handler(event, context):
             'pdf_filename': pdf_filename,
             'selected_mappings': selected_mappings,
             'status': 'PROCESSING',
+            'processType': 'OCR',  # OCR 처리 작업
             'message': 'OCR 작업을 시작합니다...',
             'progress': 5,
             'createdAt': timestamp,
