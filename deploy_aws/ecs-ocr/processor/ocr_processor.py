@@ -76,15 +76,39 @@ def process_with_ocr(job_id, pdf_filename):
         
         job_data = response['Item']
         selected_mappings = job_data.get('selected_mappings', {})
-        pdf_name = Path(pdf_filename).stem
         
-        # Get extraction metadata
-        metadata_response = table.get_item(Key={'jobId': f"{pdf_name}_metadata"})
-        if 'Item' not in metadata_response:
-            raise ValueError(f"Metadata for {pdf_name} not found")
+        # Try to find extraction metadata using different strategies
+        extracted_images_s3 = None
         
-        metadata = metadata_response['Item']
-        extracted_images_s3 = metadata.get('extracted_images', [])
+        # Strategy 1: Check if this job has extractedImages from a previous extraction
+        if 'extractedImages' in job_data:
+            extracted_images_s3 = job_data.get('extractedImages', [])
+            print(f"Found extracted images in job data")
+        else:
+            # Strategy 2: Try with pdf_filename stem
+            pdf_name = Path(pdf_filename).stem
+            metadata_response = table.get_item(Key={'jobId': f"{pdf_name}_metadata"})
+            
+            if 'Item' in metadata_response:
+                metadata = metadata_response['Item']
+                extracted_images_s3 = metadata.get('extracted_images', [])
+                print(f"Found metadata for {pdf_name}")
+            else:
+                # Strategy 3: Try to find the most recent extraction job for this PDF
+                # Search for jobs with matching pdf_filename
+                scan_response = table.scan(
+                    FilterExpression='attribute_exists(extractedImages) AND contains(pdf_filename, :filename)',
+                    ExpressionAttributeValues={':filename': pdf_name}
+                )
+                
+                if scan_response.get('Items'):
+                    # Get the most recent one
+                    items = sorted(scan_response['Items'], key=lambda x: x.get('createdAt', 0), reverse=True)
+                    extracted_images_s3 = items[0].get('extractedImages', [])
+                    print(f"Found extracted images from previous job")
+        
+        if not extracted_images_s3:
+            raise ValueError(f"No extracted images found for {pdf_filename}. Please run extraction first.")
         
         # Download extracted images from S3
         update_job_status(job_id, 'PROCESSING',

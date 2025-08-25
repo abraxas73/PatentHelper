@@ -940,10 +940,22 @@ export default {
         progress.value = 30
 
         // Process with selected mappings (including OCR)
-        const response = await axios.post(`${config.API_URL}/process-with-mappings`, {
+        const requestData = {
           pdf_filename: uploadedFile.value.name,
           mappings: selectedMappings
-        }, {
+        }
+        
+        // Include extraction job ID if available (for AWS environment)
+        if (currentJobId.value && !config.isLocal) {
+          requestData.extraction_job_id = currentJobId.value
+        }
+        
+        // Include extracted images for AWS environment
+        if (extractedImages.value.length > 0 && !config.isLocal) {
+          requestData.extractedImages = extractedImages.value
+        }
+        
+        const response = await axios.post(`${config.API_URL}/process-with-mappings`, requestData, {
           timeout: 300000 // 5 minutes timeout for OCR processing
         })
 
