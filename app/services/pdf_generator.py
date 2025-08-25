@@ -2,15 +2,21 @@
 
 import logging
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 from PIL import Image
-import pypdfium2 as pdfium
-from pypdf import PdfWriter, PdfReader
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib.utils import ImageReader
 import io
 import tempfile
+
+# Optional imports for advanced features
+try:
+    import pypdfium2 as pdfium
+    from pypdf import PdfWriter, PdfReader
+    HAS_PYPDF = True
+except ImportError:
+    HAS_PYPDF = False
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +47,17 @@ class PDFGenerator:
         Returns:
             Path to the generated PDF file
         """
+        if not HAS_PYPDF:
+            # Fallback to simple image-based PDF
+            logger.warning("pypdf not available, using simple image-based PDF generation")
+            image_paths = []
+            for ann_info in annotated_images:
+                if isinstance(ann_info, dict) and 'file_path' in ann_info:
+                    image_paths.append(ann_info['file_path'])
+                elif isinstance(ann_info, str):
+                    image_paths.append(ann_info)
+            return self.create_from_images(image_paths, title="Annotated Patent Drawings")
+        
         try:
             if not output_filename:
                 output_filename = f"{original_pdf_path.stem}_annotated.pdf"
@@ -292,6 +309,9 @@ class PDFGenerator:
     
     def _create_separator_page(self, text: str):
         """Create a separator page with text"""
+        if not HAS_PYPDF:
+            return None
+            
         try:
             # A4 size
             a4_width = 595.27
@@ -313,3 +333,91 @@ class PDFGenerator:
         except Exception as e:
             logger.error(f"Failed to create separator page: {e}")
             return None
+    
+    def create_from_images(
+        self,
+        image_paths: List[Union[str, Path]],
+        output_path: Optional[Path] = None,
+        title: Optional[str] = None
+    ) -> Path:
+        """
+        Create a simple PDF from a list of images using only reportlab
+        This method works without pypdf/pypdfium2 dependencies
+        
+        Args:
+            image_paths: List of paths to image files
+            output_path: Optional output path for the PDF
+            title: Optional title for the PDF
+            
+        Returns:
+            Path to the generated PDF file
+        """
+        try:
+            if not output_path:
+                output_path = self.output_dir / "annotated_document.pdf"
+            
+            # Ensure output directory exists
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Create PDF with reportlab
+            c = canvas.Canvas(str(output_path), pagesize=A4)
+            a4_width, a4_height = A4
+            
+            # Add title page if provided
+            if title:
+                c.setFont("Helvetica-Bold", 20)
+                c.drawCentredString(a4_width / 2, a4_height / 2, title)
+                c.showPage()
+            
+            # Add each image as a page
+            for img_path in image_paths:
+                if isinstance(img_path, str):
+                    img_path = Path(img_path)
+                
+                if not img_path.exists():
+                    logger.warning(f"Image file not found: {img_path}")
+                    continue
+                
+                try:
+                    # Open image and get dimensions
+                    img = Image.open(img_path)
+                    img_width, img_height = img.size
+                    
+                    # Calculate scaling to fit A4
+                    width_ratio = a4_width / img_width
+                    height_ratio = a4_height / img_height
+                    scale = min(width_ratio, height_ratio, 1.0)  # Don't upscale
+                    
+                    # Calculate new dimensions
+                    new_width = img_width * scale
+                    new_height = img_height * scale
+                    
+                    # Center the image on the page
+                    x_offset = (a4_width - new_width) / 2
+                    y_offset = (a4_height - new_height) / 2
+                    
+                    # Draw the image
+                    c.drawImage(
+                        str(img_path),
+                        x_offset,
+                        y_offset,
+                        width=new_width,
+                        height=new_height,
+                        preserveAspectRatio=True
+                    )
+                    
+                    c.showPage()
+                    
+                except Exception as e:
+                    logger.error(f"Failed to add image {img_path}: {e}")
+                    continue
+            
+            # Save the PDF
+            c.save()
+            
+            logger.info(f"Generated PDF from images: {output_path}")
+            return output_path
+            
+        except Exception as e:
+            logger.error(f"Failed to create PDF from images: {e}")
+            raise
