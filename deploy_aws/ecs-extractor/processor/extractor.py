@@ -20,7 +20,6 @@ sys.path.insert(0, '/app')
 
 from app.core.pdf_processor import PDFProcessor
 from app.services.text_analyzer import TextAnalyzer
-from app.services.image_processor import ImageProcessor
 
 # AWS clients
 s3 = boto3.client('s3')

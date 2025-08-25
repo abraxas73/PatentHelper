@@ -118,6 +118,9 @@
       </div>
       <div v-if="successMessage" class="success-message">
         ✅ {{ successMessage }}
+        <button v-if="annotatedPdfUrl" @click="downloadPdf" class="download-pdf-btn">
+          📄 어노테이션된 PDF 다운로드
+        </button>
       </div>
     </div>
 
@@ -451,6 +454,7 @@ export default {
     const isProcessing = ref(false)
     const images = ref([])
     const annotatedImages = ref([])
+    const annotatedPdfUrl = ref(null)
     const errorMessage = ref('')
     const successMessage = ref('')
     const numberMappings = ref({})
@@ -758,6 +762,11 @@ export default {
         images.value = response.data.extractedImages || []
         annotatedImages.value = response.data.annotatedImages || []
         numberMappings.value = response.data.numberMappings || {}
+        
+        // Store PDF URL if available
+        if (response.data.annotatedPdf) {
+          annotatedPdfUrl.value = `${config.API_URL}/images/${response.data.annotatedPdf}`
+        }
         
         successMessage.value = `성공적으로 ${images.value.length}개의 도면을 처리했습니다. 처리 시간: ${response.data.processingTime || processingTime.value}초`
         

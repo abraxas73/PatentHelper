@@ -1,6 +1,7 @@
-# Heavy requirements for OCR processing
+# Heavy requirements for OCR processing and PDF generation
 easyocr==1.7.0
 opencv-python==4.10.0.84
 Pillow==11.0.0
 numpy==1.26.0
 boto3==1.35.17
+reportlab==4.0.7

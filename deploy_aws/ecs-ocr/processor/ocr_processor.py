@@ -20,6 +20,7 @@ sys.path.insert(0, '/app')
 
 from app.services.image_extractor import ImageExtractor
 from app.services.image_annotator import ImageAnnotator
+from app.services.pdf_generator import PDFGenerator
 
 # AWS clients
 s3 = boto3.client('s3')
@@ -158,15 +159,32 @@ def process_with_ocr(job_id, pdf_filename):
             s3.upload_file(img_info['file_path'], BUCKET_NAME, s3_key)
             extracted_s3_keys.append(s3_key)
         
+        # Generate annotated PDF
+        update_job_status(job_id, 'PROCESSING',
+                         message='어노테이션된 PDF를 생성하는 중...',
+                         progress=90)
+        
+        pdf_generator = PDFGenerator()
+        pdf_path = pdf_generator.create_from_images(
+            annotated_paths,
+            output_path=temp_dir / f"{job_id}_annotated.pdf",
+            title=f"특허 도면 분석 결과 - {pdf_filename}"
+        )
+        
+        # Upload PDF to S3
+        pdf_s3_key = f"results/{job_id}/annotated_document.pdf"
+        s3.upload_file(str(pdf_path), BUCKET_NAME, pdf_s3_key)
+        
         processing_time = time.time() - start_time
         
         # Update job as completed
         update_job_status(
             job_id, 'COMPLETED',
-            message='OCR 처리가 완료되었습니다',
+            message='OCR 처리 및 PDF 생성이 완료되었습니다',
             progress=100,
             extractedImages=extracted_s3_keys,
             annotatedImages=annotated_s3_keys,
+            annotatedPdf=pdf_s3_key,
             numberMappings=selected_mappings,
             processingTime=int(processing_time)
         )
