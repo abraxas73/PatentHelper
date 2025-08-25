@@ -188,11 +188,34 @@ def process_with_ocr(job_id, pdf_filename):
                          message='어노테이션된 PDF를 생성하는 중...',
                          progress=90)
         
+        # PDF 생성 - 페이지 정보를 활용하여 적절한 크기로 생성
         pdf_generator = PDFGenerator()
         
-        # 단순 이미지 기반 PDF 생성 (권한 문제 회피)
+        # 페이지별 이미지 정보 준비
+        image_info_list = []
+        for i, (extracted_key, annotated_path) in enumerate(zip(extracted_images, annotated_paths)):
+            # S3 키에서 페이지 정보 추출
+            # 예: results/job-id/page1_img1.png -> page1
+            import re
+            match = re.search(r'page(\d+)_', extracted_key)
+            if match:
+                page_num = int(match.group(1)) - 1  # 0-indexed
+            else:
+                page_num = i  # fallback
+            
+            image_info_list.append({
+                'path': annotated_path,
+                'page_num': page_num,
+                'original_key': extracted_key
+            })
+        
+        # 페이지 순서대로 정렬
+        image_info_list.sort(key=lambda x: x['page_num'])
+        sorted_paths = [info['path'] for info in image_info_list]
+        
+        # PDF 생성 (제목 없이)
         pdf_path = pdf_generator.create_from_images(
-            annotated_paths,
+            sorted_paths,
             output_path=temp_dir / f"{job_id}_annotated.pdf"
         )
         
