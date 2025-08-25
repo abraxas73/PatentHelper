@@ -471,6 +471,8 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
                 Resource: !GetAtt JobTable.Arn
 
   # Lambda to trigger ECS Task
