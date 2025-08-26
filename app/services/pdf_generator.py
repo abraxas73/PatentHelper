@@ -360,7 +360,7 @@ class PDFGenerator:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             
             # Create PDF with reportlab
-            c = canvas.Canvas(str(output_path), pagesize=A4, compress=0)  # Disable compression for better compatibility
+            c = canvas.Canvas(str(output_path), pagesize=A4)
             a4_width, a4_height = A4
             
             # Add title page if provided
