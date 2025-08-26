@@ -47,11 +47,14 @@ def lambda_handler(event, context):
         # Format response
         history = []
         for item in items:
+            # filename 필드 통일 - 여러 필드 확인
+            filename = item.get('filename') or item.get('pdf_filename') or item.get('fileName')
+            
             history.append({
                 'jobId': item.get('jobId'),
                 'status': item.get('status'),
                 'processType': item.get('processType'),  # processType 추가
-                'filename': item.get('filename'),
+                'filename': filename,  # 통일된 filename 사용
                 'createdAt': item.get('createdAt'),
                 'completedAt': item.get('completedAt'),
                 'progress': item.get('progress', 0),

@@ -42,7 +42,8 @@ def lambda_handler(event, context):
         # Prepare job item
         job_item = {
             'jobId': job_id,
-            'pdf_filename': pdf_filename,
+            'filename': pdf_filename,  # filename으로 통일
+            'pdf_filename': pdf_filename,  # 기존 코드 호환성을 위해 유지
             'selected_mappings': selected_mappings,
             'status': 'PROCESSING',
             'processType': 'OCR',  # OCR 처리 작업

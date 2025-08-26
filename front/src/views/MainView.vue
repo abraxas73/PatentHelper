@@ -1253,22 +1253,25 @@ export default {
     }
 
     const getJobFilename = (job) => {
-      // Try multiple possible filename fields
-      if (job.fileName) return job.fileName
+      // Try multiple possible filename fields (통일된 순서)
       if (job.filename) return job.filename
+      if (job.pdf_filename) return job.pdf_filename  // OCR 작업의 경우
+      if (job.fileName) return job.fileName  // 레거시 호환
       
-      // If no filename, try to extract from s3Key
-      if (job.s3Key) {
-        const keyParts = job.s3Key.split('/')
+      // If no filename, try to extract from s3Key or s3_key
+      const s3Key = job.s3Key || job.s3_key
+      if (s3Key) {
+        const keyParts = s3Key.split('/')
         const filename = keyParts[keyParts.length - 1]
         if (filename && filename !== 'undefined') {
           return filename
         }
       }
       
-      // Last resort: use jobId with PDF extension
+      // Last resort: use jobId with prefix based on processType
       if (job.jobId) {
-        return `${job.jobId.substring(0, 8)}.pdf`
+        const prefix = job.processType === 'OCR' ? 'OCR_' : 'Extract_'
+        return `${prefix}${job.jobId.substring(0, 8)}.pdf`
       }
       
       return '파일명 없음'
