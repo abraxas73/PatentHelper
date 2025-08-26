@@ -104,11 +104,6 @@
           <div v-if="jobProgress > 0" class="progress-bar">
             <div class="progress-fill" :style="{ width: jobProgress + '%' }"></div>
           </div>
-          <div v-if="jobStatus === 'COMPLETED' && isProcessingOCR" class="result-link">
-            <router-link :to="`/job/${currentJobId}`" class="btn-link">
-              🔗 결과 페이지로 이동
-            </router-link>
-          </div>
         </div>
       </div>
 
