@@ -315,6 +315,7 @@ GitHub에 푸시하면 GitHub Actions가 자동으로 배포
    - ExtractMappings: 메모리 3GB, 타임아웃 5분
    - ProcessMappings: 메모리 10GB (최대), 타임아웃 15분 (최대)
 6. **CloudFront 커스텀 도메인**: patent.sncbears.cloud
+7. **대용량 파일 업로드 지원**: S3 사전 서명 URL 방식으로 API Gateway 제한 우회
 
 ### 📊 성능 지표
 - **Extractor 시작 시간**: ~10초
