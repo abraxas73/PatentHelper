@@ -1168,7 +1168,11 @@ export default {
             jobId: job.jobId,
             status: job.status,
             processType: job.processType,
-            filename: job.filename || job.fileName
+            filename: job.filename,
+            pdf_filename: job.pdf_filename,
+            fileName: job.fileName,
+            s3Key: job.s3Key,
+            s3_key: job.s3_key
           })))
           
           // 로컬 스토리지는 백업용으로만 업데이트

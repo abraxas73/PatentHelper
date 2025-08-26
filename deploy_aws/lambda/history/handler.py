@@ -50,6 +50,9 @@ def lambda_handler(event, context):
             # filename 필드 통일 - 여러 필드 확인
             filename = item.get('filename') or item.get('pdf_filename') or item.get('fileName')
             
+            # 디버깅용 로그
+            print(f"Job {item.get('jobId')}: filename={item.get('filename')}, pdf_filename={item.get('pdf_filename')}, processType={item.get('processType')}")
+            
             history.append({
                 'jobId': item.get('jobId'),
                 'status': item.get('status'),
