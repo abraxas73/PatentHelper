@@ -15,6 +15,11 @@
 - 좌우 확장 경계선: 파란색 → 중간 회색 (#666666)
 - 상하 확장 경계선: 초록색 → 어두운 회색 (#555555)
 
+## 핵심 원칙
+- **/app 폴더 아래의 서버 핵심 로직을 관리**하며, 로컬 실행 시와 AWS 등의 환경에서도 핵심 로직은 이 폴더에서 관리
+- ECS 컨테이너는 /app 폴더의 서비스를 그대로 사용하고, AWS 연동 코드만 추가
+- 코드 중복 최소화 및 일관성 유지
+
 ## 아키텍처
 
 ### 클라우드 서버리스 아키텍처 (AWS Serverless + ECS)
@@ -105,13 +110,15 @@ PatentHelper/
 │   │   ├── result/           # 결과 조회
 │   │   ├── history/          # 작업 이력 관리
 │   │   └── image-proxy/      # 이미지 프록시
-│   ├── ecs-extractor/        # 매핑 추출 컨테이너
+│   ├── ecs-extractor/        # 매핑 추출 컨테이너 (래퍼)
 │   │   ├── Dockerfile        # 경량 이미지
-│   │   ├── processor/        # 추출 로직
+│   │   ├── processor/        
+│   │   │   └── extractor.py  # /app/services 사용 + S3 연동
 │   │   └── requirements.txt  # 최소 의존성 (4개)
-│   ├── ecs-ocr/              # OCR 처리 컨테이너
+│   ├── ecs-ocr/              # OCR 처리 컨테이너 (래퍼)
 │   │   ├── Dockerfile        # PyTorch + EasyOCR
-│   │   ├── processor/        # OCR 로직
+│   │   ├── processor/        
+│   │   │   └── ocr_processor.py  # /app/services 사용 + S3 연동
 │   │   └── requirements.txt  # OCR 의존성 (6개)
 │   └── scripts/              # 배포 스크립트
 ├── .github/workflows/        # GitHub Actions
@@ -324,3 +331,4 @@ GitHub에 푸시하면 GitHub Actions가 자동으로 배포
 - [ ] 사용자 인증 추가
 - [ ] 처리 결과 이메일 알림
 - [ ] 다국어 OCR 지원 확대
+- /app 폴더 아래의 서버 핵심 로직을 관리하며, 로컬 실행 시와 AWS 등의 환경에서도 핵심 로직은 이 폴더에서 관리해야 함.

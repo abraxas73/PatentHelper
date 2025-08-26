@@ -20,7 +20,7 @@ sys.path.insert(0, '/app')
 
 from app.services.image_extractor import ImageExtractor
 from app.services.image_annotator import ImageAnnotator
-from pdf_generator import PDFGenerator
+from app.services.pdf_generator import PDFGenerator
 
 # AWS clients
 s3 = boto3.client('s3')

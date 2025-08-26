@@ -46,7 +46,7 @@ RUN python -c "import easyocr; reader = easyocr.Reader(['ko', 'en'], gpu=False, 
 
 # Copy application code
 COPY app/ ./app/
-COPY processor/ ./processor/
+COPY processor/ocr_processor.py ./processor/ocr_processor.py
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
