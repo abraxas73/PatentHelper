@@ -66,7 +66,7 @@ npm --version
 
 ## 2. 프로젝트 다운로드
 
-- 제공된 PatentHelper_X.zip 파일의 압축을 풀어주세요. 
+- 제공된 PatentHelper-local.zip 파일의 압축을 풀어주세요. 
 
 ---
 
@@ -116,6 +116,11 @@ pip install -r requirements.txt
 ⏱️ **예상 시간**: 5-10분 (인터넷 속도에 따라 다름)
 
 ### 3.5 백엔드 서버 실행
+
+⚠️ **중요**: 가상환경이 활성화되어 있는지 확인하세요!
+- 터미널에 `(venv)`가 표시되어야 합니다
+- 표시되지 않는다면 3.3 단계의 가상환경 활성화 명령을 다시 실행하세요
+
 ```bash
 python main.py
 ```
@@ -140,8 +145,8 @@ INFO:     Started reloader process
 # 프로젝트 폴더로 이동
 cd Desktop/PatentHelper
 
-# front 폴더로 이동
-cd front
+# local 폴더로 이동
+cd local
 ```
 
 ### 4.3 필요한 패키지 설치
@@ -216,7 +221,7 @@ python -m pip install -r requirements.txt
 
 #### 문제 4: "포트 3000이 이미 사용 중입니다"
 **해결책**:
-- front/vite.config.js 파일에서 포트 변경:
+- local/vite.config.js 파일에서 포트 변경:
   ```javascript
   server: {
     port: 3001  // 3000 → 3001
@@ -244,7 +249,7 @@ pip install [모듈명]
 #### 문제 7: 백엔드와 프론트엔드 연결 안 됨
 **해결책**:
 1. 백엔드 서버가 실행 중인지 확인 (http://localhost:8000)
-2. front/src/config.js 파일에서 API_URL 확인:
+2. local/src/config.js 파일에서 API_URL 확인:
    ```javascript
    export const API_URL = 'http://localhost:8000'
    ```
@@ -269,7 +274,7 @@ python main.py
 
 #### 프론트엔드:
 ```bash
-cd PatentHelper/front
+cd PatentHelper/local
 npm run dev
 ```
 

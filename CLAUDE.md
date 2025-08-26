@@ -22,7 +22,12 @@
 
 ## 핵심 배포 원칙
 ### AWS
-- Lambda : update-lambda.sh 를 사용. 꼭 필요한 경우에만 SAM 배포 사용.
+- **Lambda 업데이트**: `update-lambda.sh` 스크립트를 사용하여 개별적으로 진행 (권장)
+- **CloudFront**: 커스텀 도메인 patent.sncbears.cloud 사용 중 (ACM 인증서 포함)
+- **SAM 배포 주의사항**: 
+  - API Gateway HTTPS 설정 및 CloudFront 도메인 설정이 초기화되지 않도록 주의
+  - 이제 template.yaml에 CloudFront 커스텀 도메인 설정이 포함되어 SAM 배포 시에도 유지됨
+  - 하지만 Lambda 함수만 업데이트할 경우 `update-lambda.sh` 사용을 권장
    
 ## 아키텍처
 
@@ -306,6 +311,10 @@ GitHub에 푸시하면 GitHub Actions가 자동으로 배포
 2. **PDF 생성 기능**: OCR 처리 후 자동으로 PDF 생성
 3. **GitHub Actions 분리**: 각 컨테이너 독립 배포
 4. **메타데이터 관리**: DynamoDB로 단계 간 데이터 전달
+5. **Lambda 함수 성능 개선**:
+   - ExtractMappings: 메모리 3GB, 타임아웃 5분
+   - ProcessMappings: 메모리 10GB (최대), 타임아웃 15분 (최대)
+6. **CloudFront 커스텀 도메인**: patent.sncbears.cloud
 
 ### 📊 성능 지표
 - **Extractor 시작 시간**: ~10초
@@ -314,7 +323,8 @@ GitHub에 푸시하면 GitHub Actions가 자동으로 배포
 - **전체 처리 시간**: 30-60초 (PDF 크기에 따라)
 
 ### 🔧 배포 환경
-- **AWS 프로덕션**: https://d38f9rplbkj0f2.cloudfront.net
+- **AWS 프로덕션**: https://patent.sncbears.cloud
+- **CloudFront 도메인**: d38f9rplbkj0f2.cloudfront.net
 - **API Gateway**: https://ginihhv5d6.execute-api.ap-northeast-2.amazonaws.com/prod
 - **로컬 개발**: http://localhost:3000 (프론트) + http://localhost:8000 (백엔드)
 

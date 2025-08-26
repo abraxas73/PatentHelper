@@ -101,6 +101,9 @@ Resources:
               OriginAccessIdentity: ""
         Enabled: true
         DefaultRootObject: index.html
+        # Custom domain configuration
+        Aliases:
+          - patent.sncbears.cloud
         DefaultCacheBehavior:
           TargetOriginId: S3Origin
           ViewerProtocolPolicy: redirect-to-https
@@ -130,7 +133,10 @@ Resources:
                 Forward: none
         PriceClass: PriceClass_100
         ViewerCertificate:
-          CloudFrontDefaultCertificate: true
+          # ACM certificate for custom domain (us-east-1 region required for CloudFront)
+          AcmCertificateArn: arn:aws:acm:us-east-1:857201044807:certificate/eb42516a-11cc-4dc6-864c-3fd5a3375ed1
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
 
   # DynamoDB Table
   JobTable:
@@ -310,14 +316,39 @@ Resources:
             Path: /images/{proxy+}
             Method: GET
   
+  GetUploadUrlFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub patent-helper-get-upload-url-${Environment}
+      CodeUri: ../lambda/get-upload-url/
+      Handler: handler.lambda_handler
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref DocumentBucket
+          TABLE_NAME: !Ref JobTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /get-upload-url
+            Method: POST
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref DocumentBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref JobTable
+  
   ExtractMappingsFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub patent-helper-extract-mappings-${Environment}
       CodeUri: ../lambda/extract-mappings/
       Handler: handler.lambda_handler
-      Timeout: 120
-      MemorySize: 1024
+      Timeout: 300
+      MemorySize: 3008
       Environment:
         Variables:
           CLUSTER_NAME: !Ref ECSCluster
@@ -355,8 +386,8 @@ Resources:
       FunctionName: !Sub patent-helper-process-mappings-${Environment}
       CodeUri: ../lambda/process-mappings/
       Handler: handler.lambda_handler
-      Timeout: 60
-      MemorySize: 512
+      Timeout: 900
+      MemorySize: 10240
       Environment:
         Variables:
           CLUSTER_NAME: !Ref ECSCluster

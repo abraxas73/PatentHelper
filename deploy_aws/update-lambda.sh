@@ -28,6 +28,7 @@ HISTORY_FUNCTION="patent-helper-history-${ENVIRONMENT}"
 EXTRACT_MAPPINGS_FUNCTION="patent-helper-extract-mappings-${ENVIRONMENT}"
 PROCESS_MAPPINGS_FUNCTION="patent-helper-process-mappings-${ENVIRONMENT}"
 IMAGE_PROXY_FUNCTION="patent-helper-image-proxy-${ENVIRONMENT}"
+GET_UPLOAD_URL_FUNCTION="patent-helper-get-upload-url-${ENVIRONMENT}"
 
 # Update Upload Lambda
 echo -e "${YELLOW}📦 Updating Upload Lambda...${NC}"
@@ -186,6 +187,16 @@ aws lambda update-function-code \
     --function-name $IMAGE_PROXY_FUNCTION \
     --zip-file fileb://../image-proxy.zip \
     --region $REGION > /dev/null 2>&1 || echo "Image Proxy function not deployed yet - will be created with SAM deploy"
+cd ../..
+
+# Update Get Upload URL Lambda
+echo -e "${YELLOW}📦 Updating Get Upload URL Lambda...${NC}"
+cd lambda/get-upload-url
+zip -r ../get-upload-url.zip . -x "*.pyc" "__pycache__/*"
+aws lambda update-function-code \
+    --function-name $GET_UPLOAD_URL_FUNCTION \
+    --zip-file fileb://../get-upload-url.zip \
+    --region $REGION > /dev/null 2>&1 || echo "Get Upload URL function not deployed yet - will be created with SAM deploy"
 cd ../..
 
 # Clean up zip files

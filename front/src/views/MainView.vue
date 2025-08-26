@@ -860,12 +860,26 @@ export default {
             timeout: 300000 // 5 minutes timeout
           })
         } else {
-          // AWS environment - use base64
-          const fileBase64 = await fileToBase64(selectedFile.value)
+          // AWS environment - use presigned URL
+          // Step 1: Get presigned URL
+          const urlResponse = await axios.post(`${config.API_URL}/get-upload-url`, {
+            filename: selectedFile.value.name,
+            contentType: selectedFile.value.type || 'application/pdf'
+          })
           
+          const { uploadUrl, jobId, s3_key } = urlResponse.data
+          
+          // Step 2: Upload file directly to S3
+          await axios.put(uploadUrl, selectedFile.value, {
+            headers: {
+              'Content-Type': selectedFile.value.type || 'application/pdf'
+            }
+          })
+          
+          // Step 3: Trigger extraction
           response = await axios.post(`${config.API_URL}/extract-mappings`, {
-            file: fileBase64,
-            filename: selectedFile.value.name
+            jobId: jobId,
+            s3_key: s3_key
           })
         }
 

@@ -1,9 +1,7 @@
 import json
 import boto3
-import uuid
 from datetime import datetime
 import os
-import base64
 
 s3 = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
@@ -19,39 +17,43 @@ SECURITY_GROUP_ID = os.environ.get('SECURITY_GROUP_ID', '')
 def lambda_handler(event, context):
     """
     Trigger ECS task to extract mappings from PDF (analysis phase)
+    Now expects jobId and s3_key instead of file content
     """
     try:
         # Parse request
         body = json.loads(event['body'])
-        file_content = base64.b64decode(body['file'])
-        filename = body.get('filename', 'document.pdf')
+        job_id = body['jobId']
+        s3_key = body['s3_key']
         
-        # Generate job ID
-        job_id = str(uuid.uuid4())
+        # Get job info from DynamoDB
+        table = dynamodb.Table(TABLE_NAME)
+        response = table.get_item(Key={'jobId': job_id})
+        
+        if 'Item' not in response:
+            return {
+                'statusCode': 404,
+                'headers': {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                },
+                'body': json.dumps({'error': 'Job not found'})
+            }
+        
+        job_item = response['Item']
+        filename = job_item.get('filename', 'document.pdf')
         timestamp = int(datetime.now().timestamp())
         
-        # Upload PDF to S3
-        pdf_key = f"uploads/{job_id}/{filename}"
-        s3.put_object(
-            Bucket=BUCKET_NAME,
-            Key=pdf_key,
-            Body=file_content,
-            ContentType='application/pdf'
-        )
-        
-        # Store job data in DynamoDB
-        table = dynamodb.Table(TABLE_NAME)
-        table.put_item(
-            Item={
-                'jobId': job_id,
-                's3_key': pdf_key,
-                'filename': filename,
-                'status': 'PROCESSING',
-                'processType': 'EXTRACTION',  # 매핑 추출 작업
-                'message': '매핑 정보를 추출하는 중...',
-                'progress': 5,
-                'createdAt': timestamp,
-                'ttl': timestamp + 86400  # Expire after 24 hours
+        # Update job status
+        table.update_item(
+            Key={'jobId': job_id},
+            UpdateExpression='SET #status = :status, processType = :type, message = :msg, progress = :progress, startedAt = :started',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'PROCESSING',
+                ':type': 'EXTRACTION',
+                ':msg': '매핑 정보를 추출하는 중...',
+                ':progress': 5,
+                ':started': timestamp
             }
         )
         
@@ -76,7 +78,7 @@ def lambda_handler(event, context):
                             'name': 'extractor-processor',
                             'environment': [
                                 {'name': 'JOB_ID', 'value': job_id},
-                                {'name': 'S3_KEY', 'value': pdf_key},
+                                {'name': 'S3_KEY', 'value': s3_key},
                                 {'name': 'BUCKET_NAME', 'value': BUCKET_NAME},
                                 {'name': 'TABLE_NAME', 'value': TABLE_NAME}
                             ]
