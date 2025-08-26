@@ -63,7 +63,7 @@
       <!-- Action Buttons -->
       <div class="action-buttons">
         <button 
-          v-if="!isCompleted && !showMappings"
+          v-if="!isCompleted && !showMappings && !currentJobId"
           class="btn btn-primary"
           :disabled="!selectedFile || isProcessing"
           @click="extractMappings"
@@ -74,10 +74,10 @@
         <button 
           v-if="showMappings && !isCompleted"
           class="btn btn-primary"
-          :disabled="isProcessing"
+          :disabled="isProcessing || isProcessingOCR"
           @click="processWithMappings"
         >
-          <span v-if="isProcessing" class="loading"></span>
+          <span v-if="isProcessing || isProcessingOCR" class="loading"></span>
           <span v-else-if="isReworkMode">작업 실행</span>
           <span v-else>작업 시작</span>
         </button>
@@ -88,7 +88,7 @@
         >
           재작업
         </button>
-        <span v-if="isProcessing" class="processing-time">
+        <span v-if="isProcessing || isProcessingOCR || currentJobId" class="processing-time">
           처리 중... {{ processingTime }}초
         </span>
       </div>
@@ -113,7 +113,7 @@
       </div>
       <div v-if="successMessage" class="success-message">
         ✅ {{ successMessage }}
-        <button v-if="annotatedPdfUrl" @click="downloadPdf" class="download-pdf-btn">
+        <button v-if="annotatedPdfUrl && !isReworkMode && !isProcessingOCR" @click="downloadPdf" class="download-pdf-btn">
           📄 어노테이션된 PDF 다운로드
         </button>
       </div>
@@ -696,6 +696,7 @@ export default {
             stopStatusCheck()
             stopTimer()
             isProcessing.value = false
+            isProcessingOCR.value = false
           }
         } catch (error) {
           console.error('Status check error:', error)
@@ -721,6 +722,7 @@ export default {
             stopStatusCheck()
             stopTimer()
             isProcessing.value = false
+            isProcessingOCR.value = false
             isCompleted.value = true
             
             // Show result URL
@@ -732,6 +734,7 @@ export default {
             stopStatusCheck()
             stopTimer()
             isProcessing.value = false
+            isProcessingOCR.value = false
           }
         } catch (error) {
           console.error('OCR status check error:', error)
@@ -774,7 +777,6 @@ export default {
       try {
         const response = await axios.get(`${config.API_URL}/result/${currentJobId.value}`)
         
-        console.log('OCR result response:', response.data)
         
         // Store final results
         images.value = response.data.extractedImages || []
@@ -782,13 +784,20 @@ export default {
         numberMappings.value = response.data.numberMappings || {}
         
         // Store PDF URL if available - use CloudFront URL directly
-        if (response.data.annotatedPdf) {
+        // But not in rework mode
+        if (response.data.annotatedPdf && !isReworkMode.value) {
           // CloudFront URL for direct S3 access
           const cloudFrontUrl = 'https://d38f9rplbkj0f2.cloudfront.net'
           annotatedPdfUrl.value = `${cloudFrontUrl}/${response.data.annotatedPdf}`
         }
         
-        successMessage.value = `성공적으로 ${images.value.length}개의 도면을 처리했습니다. 처리 시간: ${response.data.processingTime || processingTime.value}초`
+        // 재작업 모드에 따라 다른 메시지 표시
+        if (isReworkMode.value) {
+          successMessage.value = `재작업이 완료되었습니다! ${annotatedImages.value.length}개의 도면을 처리했습니다. 처리 시간: ${response.data.processingTime || processingTime.value}초`
+          isReworkMode.value = false  // 재작업 완료 후 모드 해제
+        } else {
+          successMessage.value = `성공적으로 ${images.value.length}개의 도면을 처리했습니다. 처리 시간: ${response.data.processingTime || processingTime.value}초`
+        }
         
         // Store in job history
         saveToHistory({
@@ -917,16 +926,21 @@ export default {
               jobStatus.value = response.data.status || 'PROCESSING'
               jobMessage.value = response.data.message || '매핑 추출 중...'
               
+              // Don't set isProcessing to false here, keep it true while polling
               // Start polling for AWS job status
               await checkJobStatus()
+              return // Exit here to avoid finally block
             }
           }
         }
+        
+        // Only set isProcessing to false if we're done (local environment)
+        isProcessing.value = false
+        stopTimer()
 
       } catch (error) {
         console.error('Mapping extraction error:', error)
         errorMessage.value = error.response?.data?.error || error.response?.data?.detail || '매핑 추출 중 오류가 발생했습니다.'
-      } finally {
         isProcessing.value = false
         stopTimer()
       }
@@ -942,7 +956,7 @@ export default {
         annotatedImages.value = []
       }
       
-      isProcessing.value = true
+      isProcessingOCR.value = true
       errorMessage.value = ''
       successMessage.value = ''
       processingTime.value = 0
@@ -1020,7 +1034,14 @@ export default {
           stopTimer()
           progressMessage.value = ''
           progress.value = 100
-          successMessage.value = `도면 처리가 완료되었습니다! (처리 시간: ${processingTime.value}초)`
+          
+          // 재작업 모드가 아닐 때만 PDF 관련 메시지 표시
+          if (!isReworkMode.value) {
+            successMessage.value = `도면 처리가 완료되었습니다! (처리 시간: ${processingTime.value}초)`
+          } else {
+            successMessage.value = `재작업이 완료되었습니다! (처리 시간: ${processingTime.value}초)`
+            isReworkMode.value = false  // 재작업 완료 후 모드 해제
+          }
           
         } else {
           // AWS environment - returns jobId, need to poll for status
@@ -1051,11 +1072,14 @@ export default {
       } catch (error) {
         console.error('Processing error:', error)
         errorMessage.value = error.response?.data?.error || error.response?.data?.detail || '처리 중 오류가 발생했습니다.'
+        isProcessingOCR.value = false
         stopTimer()
       } finally {
         if (config.isLocal) {
-          isProcessing.value = false
+          isProcessingOCR.value = false
+          stopTimer()
         }
+        // For AWS, isProcessingOCR will be set to false in checkJobStatusForOCR
       }
     }
 
@@ -1177,17 +1201,6 @@ export default {
           const response = await axios.get(`${config.API_URL}/history`)
           jobHistory.value = response.data.history || []
           
-          // 디버깅: processType 확인
-          console.log('DynamoDB 작업 이력:', jobHistory.value.map(job => ({
-            jobId: job.jobId,
-            status: job.status,
-            processType: job.processType,
-            filename: job.filename,
-            pdf_filename: job.pdf_filename,
-            fileName: job.fileName,
-            s3Key: job.s3Key,
-            s3_key: job.s3_key
-          })))
           
           // 로컬 스토리지는 백업용으로만 업데이트
           localStorage.setItem('jobHistory', JSON.stringify(jobHistory.value))

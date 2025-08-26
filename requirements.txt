@@ -13,7 +13,7 @@ pypdf==3.17.0
 # Image Processing
 opencv-python==4.8.1.78
 Pillow==10.4.0  # Updated for Python 3.13 compatibility
-numpy==1.26.2  # Updated for Python 3.13 compatibility
+numpy>=1.26.2,<2.0  # Updated for better Windows compatibility
 reportlab==4.0.7
 
 # OCR
