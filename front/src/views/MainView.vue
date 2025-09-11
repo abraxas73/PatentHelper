@@ -848,6 +848,12 @@ export default {
       errorMessage.value = ''
       successMessage.value = ''
       processingTime.value = 0
+      
+      // Generate jobId for local environment at the start
+      if (config.isLocal) {
+        currentJobId.value = 'local-' + Date.now()
+        console.log('Generated jobId for local environment:', currentJobId.value)
+      }
 
       // Start timer
       processingTimer.value = setInterval(() => {
@@ -1035,12 +1041,46 @@ export default {
           progressMessage.value = ''
           progress.value = 100
           
-          // 재작업 모드가 아닐 때만 PDF 관련 메시지 표시
-          if (!isReworkMode.value) {
-            successMessage.value = `도면 처리가 완료되었습니다! (처리 시간: ${processingTime.value}초)`
+          // 로컬 환경에서는 PDF 생성을 자동으로 시도
+          if (config.isLocal && annotatedImages.value.length > 0) {
+            try {
+              progressMessage.value = 'PDF 생성 중...'
+              const pdfResponse = await axios.post(`${config.API_URL}/generate-pdf`, {
+                pdf_filename: uploadedFile.value.name,
+                pdf_type: 'annotated'
+              })
+              
+              if (pdfResponse.data.filename) {
+                // 로컬 환경에서는 API를 통해 다운로드 URL 생성
+                annotatedPdfUrl.value = `${config.API_URL}/download-pdf/${pdfResponse.data.filename}`
+                successMessage.value = `도면 처리 및 PDF 생성이 완료되었습니다! (처리 시간: ${processingTime.value}초)`
+                
+                // PDF URL이 생성된 후 작업 이력 업데이트
+                const history = JSON.parse(localStorage.getItem('jobHistory') || '[]')
+                // Use currentJobId.value which was set consistently earlier
+                const jobId = currentJobId.value
+                const existingIndex = history.findIndex(h => h.jobId === jobId)
+                if (existingIndex >= 0) {
+                  history[existingIndex].annotatedPdfUrl = annotatedPdfUrl.value
+                  localStorage.setItem('jobHistory', JSON.stringify(history))
+                  console.log('Updated job history with PDF URL:', annotatedPdfUrl.value, 'for jobId:', jobId)
+                } else {
+                  console.log('Could not find job in history with jobId:', jobId)
+                }
+              }
+            } catch (error) {
+              console.error('PDF generation error:', error)
+              // PDF 생성 실패해도 처리는 완료된 것으로 표시
+              successMessage.value = `도면 처리가 완료되었습니다! (처리 시간: ${processingTime.value}초) - PDF 생성 실패`
+            }
           } else {
-            successMessage.value = `재작업이 완료되었습니다! (처리 시간: ${processingTime.value}초)`
-            isReworkMode.value = false  // 재작업 완료 후 모드 해제
+            // 재작업 모드가 아닐 때만 PDF 관련 메시지 표시
+            if (!isReworkMode.value) {
+              successMessage.value = `도면 처리가 완료되었습니다! (처리 시간: ${processingTime.value}초)`
+            } else {
+              successMessage.value = `재작업이 완료되었습니다! (처리 시간: ${processingTime.value}초)`
+              isReworkMode.value = false  // 재작업 완료 후 모드 해제
+            }
           }
           
         } else {
@@ -1057,16 +1097,20 @@ export default {
           }
         }
 
-        // Store in job history
+        // Store in job history - use existing jobId
+        // currentJobId.value was already set in extractMappings for local environment
+        const localJobId = currentJobId.value
+        
         saveToHistory({
-          jobId: config.isLocal ? 'local-' + Date.now() : currentJobId.value,
+          jobId: localJobId,
           fileName: uploadedFile.value.name,
           status: config.isLocal ? 'COMPLETED' : 'PROCESSING',
           createdAt: Date.now(),
           extractedImages: extractedImages.value,
           annotatedImages: annotatedImages.value,
           numberMappings: selectedMappings,
-          processingTime: processingTime.value
+          processingTime: processingTime.value,
+          annotatedPdfUrl: annotatedPdfUrl.value // Add PDF URL for local environment
         })
 
       } catch (error) {
@@ -1113,21 +1157,40 @@ export default {
     }
 
     const getImageUrl = (imagePath) => {
-      // Handle object with file_path property
-      if (typeof imagePath === 'object' && imagePath.file_path) {
-        // For S3 paths like "results/{jobId}/extracted/filename.png"
-        return `${config.API_URL}/images/${imagePath.file_path}`
-      }
-      
-      // Handle string path
-      if (typeof imagePath === 'string') {
-        // If it's already a full S3 path
-        if (imagePath.startsWith('results/')) {
-          return `${config.API_URL}/images/${imagePath}`
+      // For local environment
+      if (config.isLocal) {
+        // Handle object with file_path property
+        if (typeof imagePath === 'object' && imagePath.file_path) {
+          // Extract just the filename from the full path
+          const filename = imagePath.file_path.split('/').pop()
+          return `${config.API_URL}/images/${filename}`
         }
-        // For legacy paths, just get filename
-        const filename = imagePath.split('/').pop()
-        return `${config.API_URL}/images/${filename}`
+        
+        // Handle string path
+        if (typeof imagePath === 'string') {
+          // Extract just the filename from the full path
+          const filename = imagePath.split('/').pop()
+          return `${config.API_URL}/images/${filename}`
+        }
+      } 
+      // For AWS environment
+      else {
+        // Handle object with file_path property
+        if (typeof imagePath === 'object' && imagePath.file_path) {
+          // For S3 paths like "results/{jobId}/extracted/filename.png"
+          return `${config.API_URL}/images/${imagePath.file_path}`
+        }
+        
+        // Handle string path
+        if (typeof imagePath === 'string') {
+          // If it's already a full S3 path
+          if (imagePath.startsWith('results/')) {
+            return `${config.API_URL}/images/${imagePath}`
+          }
+          // For legacy paths, just get filename
+          const filename = imagePath.split('/').pop()
+          return `${config.API_URL}/images/${filename}`
+        }
       }
       
       return imagePath
@@ -1174,14 +1237,43 @@ export default {
     }
 
     const saveToHistory = (job) => {
-      const history = JSON.parse(localStorage.getItem('jobHistory') || '[]')
-      history.unshift(job)
-      // Keep only last 50 jobs
-      if (history.length > 50) {
-        history.pop()
+      // 로컬 환경: localStorage에만 저장
+      if (config.isLocal) {
+        const history = JSON.parse(localStorage.getItem('jobHistory') || '[]')
+        
+        // 중복 체크 (같은 jobId가 있으면 업데이트)
+        const existingIndex = history.findIndex(h => h.jobId === job.jobId)
+        if (existingIndex >= 0) {
+          history[existingIndex] = job
+        } else {
+          history.unshift(job)
+        }
+        
+        // Keep only last 50 jobs
+        if (history.length > 50) {
+          history.pop()
+        }
+        localStorage.setItem('jobHistory', JSON.stringify(history))
+        loadHistory()
+      } 
+      // AWS 환경: DynamoDB에 저장됨 (Lambda가 처리)
+      else {
+        // AWS에서는 Lambda/ECS가 자동으로 DynamoDB에 저장
+        // 여기서는 임시로 localStorage에 백업만
+        const history = JSON.parse(localStorage.getItem('jobHistory') || '[]')
+        const existingIndex = history.findIndex(h => h.jobId === job.jobId)
+        if (existingIndex >= 0) {
+          history[existingIndex] = job
+        } else {
+          history.unshift(job)
+        }
+        if (history.length > 50) {
+          history.pop()
+        }
+        localStorage.setItem('jobHistory', JSON.stringify(history))
+        // AWS 환경에서는 주기적으로 DynamoDB에서 동기화
+        loadHistory()
       }
-      localStorage.setItem('jobHistory', JSON.stringify(history))
-      loadHistory()
     }
 
     const updateHistoryStatus = (jobId, status) => {
@@ -1196,38 +1288,48 @@ export default {
 
     const loadHistory = async () => {
       try {
-        // AWS 환경에서는 DynamoDB에서 가져오기
-        if (!config.isLocal) {
-          const response = await axios.get(`${config.API_URL}/history`)
-          jobHistory.value = response.data.history || []
-          
-          
-          // 로컬 스토리지는 백업용으로만 업데이트
-          localStorage.setItem('jobHistory', JSON.stringify(jobHistory.value))
-        } else {
-          // 로컬 환경에서만 localStorage 사용
+        // 로컬 환경: localStorage에서만 가져오기
+        if (config.isLocal) {
           let localHistory = JSON.parse(localStorage.getItem('jobHistory') || '[]')
           
           // Clean up invalid timestamp data in localStorage
           localHistory = localHistory.map(job => {
+            // 타임스탬프 보정
             if (job.createdAt && job.createdAt < 10000000000) {
               return {
                 ...job,
                 createdAt: Date.now()
               }
             }
-            return job
+            // 로컬 환경 필수 필드 보장
+            return {
+              ...job,
+              status: job.status || 'COMPLETED',
+              extractedImages: job.extractedImages || [],
+              annotatedImages: job.annotatedImages || [],
+              numberMappings: job.numberMappings || {},
+              annotatedPdfUrl: job.annotatedPdfUrl || null
+            }
           }).filter(job => {
             const date = new Date(job.createdAt)
             return date.getFullYear() > 2020
           })
           
           jobHistory.value = localHistory.slice(0, 50) // Keep only latest 50
+        } 
+        // AWS 환경: DynamoDB에서 가져오기
+        else {
+          const response = await axios.get(`${config.API_URL}/history`)
+          jobHistory.value = response.data.history || []
+          
+          // DynamoDB 데이터를 localStorage에 백업 (오프라인 대비)
+          localStorage.setItem('jobHistory', JSON.stringify(jobHistory.value))
         }
       } catch (error) {
         console.error('Failed to load history:', error)
-        // AWS 환경에서 실패 시에도 로컬 스토리지는 사용하지 않음
+        
         if (config.isLocal) {
+          // 로컬 환경: localStorage에서 복구 시도
           let localHistory = JSON.parse(localStorage.getItem('jobHistory') || '[]')
           localHistory = localHistory.filter(job => {
             const date = new Date(job.createdAt)
@@ -1235,7 +1337,14 @@ export default {
           })
           jobHistory.value = localHistory
         } else {
-          jobHistory.value = []  // AWS에서는 빈 배열로 설정
+          // AWS 환경: localStorage 백업에서 읽기 시도
+          try {
+            const backupHistory = JSON.parse(localStorage.getItem('jobHistory') || '[]')
+            jobHistory.value = backupHistory
+            console.log('Using localStorage backup for AWS history')
+          } catch {
+            jobHistory.value = []  // 최후의 수단: 빈 배열
+          }
         }
       }
     }
@@ -1378,19 +1487,41 @@ export default {
       }
       
       try {
-        // Direct download from CloudFront/S3
-        const link = document.createElement('a')
-        link.href = annotatedPdfUrl.value
-        
-        // Extract filename from URL or use default
-        const urlParts = annotatedPdfUrl.value.split('/')
-        const filename = urlParts[urlParts.length - 1] || 'annotated.pdf'
-        link.download = filename
-        link.target = '_blank'
-        
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
+        // For local environment, use fetch to download the file
+        if (config.isLocal) {
+          const response = await fetch(annotatedPdfUrl.value)
+          const blob = await response.blob()
+          const url = window.URL.createObjectURL(blob)
+          
+          const link = document.createElement('a')
+          link.href = url
+          
+          // Extract filename from URL or use default
+          const urlParts = annotatedPdfUrl.value.split('/')
+          const filename = urlParts[urlParts.length - 1] || 'annotated.pdf'
+          link.download = filename
+          
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          
+          // Clean up the object URL
+          window.URL.revokeObjectURL(url)
+        } else {
+          // Direct download from CloudFront/S3 for AWS environment
+          const link = document.createElement('a')
+          link.href = annotatedPdfUrl.value
+          
+          // Extract filename from URL or use default
+          const urlParts = annotatedPdfUrl.value.split('/')
+          const filename = urlParts[urlParts.length - 1] || 'annotated.pdf'
+          link.download = filename
+          link.target = '_blank'
+          
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+        }
         
         successMessage.value = 'PDF 다운로드가 시작되었습니다.'
       } catch (error) {
@@ -1406,6 +1537,99 @@ export default {
       // Set current job ID
       currentJobId.value = job.jobId
       
+      // For local environment with completed jobs, show results directly
+      if (config.isLocal && job.status === 'COMPLETED') {
+        // Restore completed job data
+        if (job.extractedImages) {
+          extractedImages.value = job.extractedImages
+          // Convert extracted images to URL format for display
+          images.value = job.extractedImages.map(img => {
+            if (typeof img === 'object' && img.file_path) {
+              const filename = img.file_path.split('/').pop()
+              return {
+                url: `${config.API_URL}/images/${filename}`,
+                key: filename,
+                ...img
+              }
+            } else if (typeof img === 'string') {
+              const filename = img.split('/').pop()
+              return {
+                url: `${config.API_URL}/images/${filename}`,
+                key: filename
+              }
+            }
+            return img
+          })
+        }
+        if (job.annotatedImages) {
+          // Convert annotated images to URL format for display
+          annotatedImages.value = job.annotatedImages.map(img => {
+            if (typeof img === 'object' && img.file_path) {
+              const filename = img.file_path.split('/').pop()
+              return {
+                url: `${config.API_URL}/images/${filename}`,
+                key: filename,
+                ...img
+              }
+            } else if (typeof img === 'string') {
+              const filename = img.split('/').pop()
+              return {
+                url: `${config.API_URL}/images/${filename}`,
+                key: filename
+              }
+            }
+            return img
+          })
+        }
+        if (job.numberMappings) {
+          numberMappings.value = job.numberMappings
+        }
+        if (job.annotatedPdfUrl) {
+          annotatedPdfUrl.value = job.annotatedPdfUrl
+          console.log('Restored annotatedPdfUrl:', annotatedPdfUrl.value)
+        } else {
+          console.log('No annotatedPdfUrl in job history')
+        }
+        
+        // Set completion status
+        isCompleted.value = true
+        isProcessing.value = false
+        isProcessingOCR.value = false
+        showMappings.value = false
+        isReworkMode.value = false  // Ensure rework mode is off
+        
+        // Show success message
+        if (job.processingTime) {
+          processingTime.value = job.processingTime
+          successMessage.value = `작업이 완료되었습니다! (처리 시간: ${job.processingTime}초)`
+        } else {
+          successMessage.value = '작업이 완료되었습니다!'
+        }
+        
+        return // Exit early for completed local jobs
+      }
+      
+      // For AWS environment with completed jobs
+      if (!config.isLocal && job.status === 'COMPLETED') {
+        // AWS 환경: DynamoDB에서 가져온 완료된 작업 데이터 복원
+        // JobResultView와 동일한 방식으로 처리
+        if (job.extractedImages) {
+          extractedImages.value = job.extractedImages
+          images.value = job.extractedImages
+        }
+        if (job.annotatedImages) {
+          annotatedImages.value = job.annotatedImages
+        }
+        if (job.numberMappings) {
+          numberMappings.value = job.numberMappings
+        }
+        
+        // AWS 환경에서는 별도 페이지로 이동
+        router.push(`/job/${job.jobId}`)
+        return
+      }
+      
+      // For processing jobs (both local and AWS), continue with tracking
       // If this is an extraction job (has extractedImages), store as extraction job
       if (job.extractedImages) {
         extractionJobId.value = job.jobId

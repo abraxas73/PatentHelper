@@ -87,14 +87,23 @@ GET https://api-url/images/{key}
 
 ### 로컬 개발 API
 ```bash
-# PDF 업로드 및 처리
-POST http://localhost:8000/api/v1/process
+# 매핑 추출 (1단계)
+POST http://localhost:8000/api/v1/extract-mappings
 
-# 서비스 상태 확인
-GET http://localhost:8000/api/v1/status
+# OCR 처리 (2단계)
+POST http://localhost:8000/api/v1/process-with-mappings
+
+# PDF 생성
+POST http://localhost:8000/api/v1/generate-pdf
+
+# PDF 다운로드
+GET http://localhost:8000/api/v1/download-pdf/{filename}
 
 # 이미지 조회
 GET http://localhost:8000/api/v1/images/{filename}
+
+# 서비스 상태 확인
+GET http://localhost:8000/api/v1/status
 
 # API 문서
 GET http://localhost:8000/docs (Swagger UI)
