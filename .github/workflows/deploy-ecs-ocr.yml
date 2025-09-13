@@ -10,6 +10,7 @@ on:
       - 'app/services/image_annotator.py'
       - 'app/services/pdf_generator.py'
       - '.github/workflows/deploy-ecs-ocr.yml'
+  workflow_dispatch:
 
 env:
   AWS_REGION: ap-northeast-2
