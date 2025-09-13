@@ -11,8 +11,13 @@
       
       <!-- Image info -->
       <div class="modal-info">
-        <h3>{{ image.figure_number || `페이지 ${image.original_page + 1}` }}</h3>
-        <p>{{ image.filename }} • {{ image.width }} × {{ image.height }}px</p>
+        <h3>{{ image.figure_number || (image.original_page !== undefined ? `페이지 ${image.original_page + 1}` : image.key || '이미지') }}</h3>
+        <p>
+          {{ image.filename || image.key || '이미지 파일' }}
+          <span v-if="image.width && image.height && image.width !== 'Unknown'">
+            • {{ image.width }} × {{ image.height }}px
+          </span>
+        </p>
       </div>
       
       <!-- Download section -->
@@ -103,20 +108,38 @@ export default {
         
         if (selectedFormat.value === 'png') {
           // Direct download for PNG
-          downloadUrl = imageUrl.value
           filename += '.png'
-          
-          // For S3 presigned URLs, download directly
-          const link = document.createElement('a')
-          link.href = downloadUrl
-          link.download = filename
-          // Add target="_blank" for cross-origin URLs
-          if (downloadUrl.includes('amazonaws.com')) {
-            link.target = '_blank'
+
+          // For cross-origin URLs (S3, CloudFront), fetch as blob
+          if (imageUrl.value.includes('amazonaws.com') || imageUrl.value.includes('cloudfront.net')) {
+            try {
+              const response = await fetch(imageUrl.value)
+              const blob = await response.blob()
+              downloadUrl = URL.createObjectURL(blob)
+
+              const link = document.createElement('a')
+              link.href = downloadUrl
+              link.download = filename
+              document.body.appendChild(link)
+              link.click()
+              document.body.removeChild(link)
+
+              // Clean up blob URL
+              setTimeout(() => URL.revokeObjectURL(downloadUrl), 100)
+            } catch (error) {
+              console.error('Download failed:', error)
+              // Fallback: open in new tab
+              window.open(imageUrl.value, '_blank')
+            }
+          } else {
+            // For local URLs, direct download
+            const link = document.createElement('a')
+            link.href = imageUrl.value
+            link.download = filename
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
           }
-          document.body.appendChild(link)
-          link.click()
-          document.body.removeChild(link)
         } else {
           // For format conversion, try to use backend if available
           try {
@@ -148,16 +171,34 @@ export default {
             // If conversion fails, fallback to direct download with warning
             console.warn('Format conversion not available, downloading as PNG:', conversionError)
             alert('형식 변환이 지원되지 않습니다. PNG 형식으로 다운로드됩니다.')
-            
-            const link = document.createElement('a')
-            link.href = imageUrl.value
-            link.download = filename + '.png'
-            if (imageUrl.value.includes('amazonaws.com')) {
-              link.target = '_blank'
+
+            // Use the same blob download approach for fallback
+            if (imageUrl.value.includes('amazonaws.com') || imageUrl.value.includes('cloudfront.net')) {
+              try {
+                const response = await fetch(imageUrl.value)
+                const blob = await response.blob()
+                const blobUrl = URL.createObjectURL(blob)
+
+                const link = document.createElement('a')
+                link.href = blobUrl
+                link.download = filename + '.png'
+                document.body.appendChild(link)
+                link.click()
+                document.body.removeChild(link)
+
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 100)
+              } catch (err) {
+                console.error('Fallback download failed:', err)
+                window.open(imageUrl.value, '_blank')
+              }
+            } else {
+              const link = document.createElement('a')
+              link.href = imageUrl.value
+              link.download = filename + '.png'
+              document.body.appendChild(link)
+              link.click()
+              document.body.removeChild(link)
             }
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
           }
         }
         

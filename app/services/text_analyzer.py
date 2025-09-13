@@ -10,22 +10,25 @@ class TextAnalyzer:
         # Patterns for extracting number-label mappings (부호의 설명 섹션)
         # Now supports alphanumeric patterns like 156a, 156b
         self.patterns = {
-            'basic': r'(\d{1,4}[a-zA-Z]?)\s*[:：]\s*([가-힣\w\s]+)',
-            'dash': r'(\d{1,4}[a-zA-Z]?)\s*[-－]\s*([가-힣\w\s]+)',
-            'dots': r'(\d{1,4}[a-zA-Z]?)\s*[\.…]+\s*([가-힣\w\s]+)',
-            'parenthesis': r'(\d{1,4}[a-zA-Z]?)\s*\)\s*([가-힣\w\s]+)',
-            'korean_style': r'(\d{1,4}[a-zA-Z]?)\s*은\s+([가-힣\w\s]+)',
-            'reference': r'참조\s*번호\s*(\d{1,4}[a-zA-Z]?)\s*[:：]?\s*([가-힣\w\s]+)',
-            'symbol_list': r'<\s*(\d{1,4}[a-zA-Z]?)\s*>\s*([가-힣\w\s]+)',
-            'bracket': r'\[\s*(\d{1,4}[a-zA-Z]?)\s*\]\s*([가-힣\w\s]+)',
-            'comma_style': r'(\d{1,4}[a-zA-Z]?)\s*[,，]\s*([가-힣\w\s]+)',
+            'basic': r'(\d{1,4}[a-zA-Z]?)\s*[:：]\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?\s*[:：]|$|\n)',
+            'dash': r'(\d{1,4}[a-zA-Z]?)\s*[-－]\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?\s*[-－]|$|\n)',
+            'dots': r'(\d{1,4}[a-zA-Z]?)\s*[\.…]+\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?\s*[\.…]|$|\n)',
+            'parenthesis': r'(\d{1,4}[a-zA-Z]?)\s*\)\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?\s*\)|$|\n)',
+            'korean_style': r'(\d{1,4}[a-zA-Z]?)\s*은\s+([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?\s*은|$|\n)',
+            'reference': r'참조\s*번호\s*(\d{1,4}[a-zA-Z]?)\s*[:：]?\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?|$|\n)',
+            'symbol_list': r'<\s*(\d{1,4}[a-zA-Z]?)\s*>\s*([가-힣][가-힣\w\s]*?)(?=\s*<\s*\d{1,4}[a-zA-Z]?\s*>|$|\n)',
+            'bracket': r'\[\s*(\d{1,4}[a-zA-Z]?)\s*\]\s*([가-힣][가-힣\w\s]*?)(?=\s*\[\s*\d{1,4}[a-zA-Z]?\s*\]|$|\n)',
+            'comma_style': r'(\d{1,4}[a-zA-Z]?)\s*[,，]\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?\s*[,，]|$|\n)',
             'space_only': r'^\s*(\d{1,4}[a-zA-Z]?)\s+([가-힣][가-힣\w\s]+)',
             'tab_style': r'(\d{1,4}[a-zA-Z]?)\t+([가-힣\w\s]+)'
         }
 
         # Pattern for inline format: "명칭(숫자)"
-        # Modified to better handle particles and prefixes
-        self.inline_pattern = r'(?:상기\s+)?([가-힣][가-힣\w\s]*?)\((\d{1,4}[a-zA-Z]?)\)'
+        # 1단어: 글자 수 제한 없음 (2글자 이상)
+        # 2-3단어: 각 단어 최대 8글자, 공백 최대 2개
+        # Pattern allows: "제1 제어부", "제2 제어부" with digits in Korean words
+        # Also captures adnominal forms like "회전하는 축", "고정시키기 위한 걸림고리"
+        self.inline_pattern = r'(?:^|[\s,.]|상기\s+)((?:[가-힣0-9]+\s*(?:을|를|이|가|에|의|와|과|으로|로|하는|되는|된|한|시키기)?\s*(?:위한\s+)?)?[가-힣0-9]{2,}(?:\s[가-힣0-9]{1,8}(?:\s[가-힣0-9]{1,8})?)?)\((\d{1,4}[a-zA-Z]?)\)'
         
         # Keywords that indicate part/component listings
         self.part_list_keywords = [
@@ -171,8 +174,22 @@ class TextAnalyzer:
             # Find all matches of the inline pattern in each sentence
             matches = re.finditer(self.inline_pattern, sentence)
             for match in matches:
+                # Get the full match to check context
+                full_match = match.group(0)
                 label = match.group(1).strip()
                 number = match.group(2).strip()
+
+                # Check if there are extra words before the match (공백 3개 이상 체크)
+                # Get text before the match
+                start_pos = match.start()
+                if start_pos > 0:
+                    # Check previous 30 characters for multiple spaces
+                    prev_text = sentence[max(0, start_pos-30):start_pos]
+                    # Count spaces between Korean words
+                    if prev_text.count(' ') > 3 and ',' not in prev_text:
+                        # Skip if too many spaces (likely part of longer phrase)
+                        continue
+
 
                 # For comma-separated lists, handle them specially
                 # e.g., "센서부(300)은 온도 센서(301), 습도 센서(302), 압력 센서(303)을 포함"
@@ -181,14 +198,19 @@ class TextAnalyzer:
                     parts = sentence.split(',')
                     for part in parts:
                         if f'({number})' in part:
-                            # Extract just the relevant part for this number
-                            part_match = re.search(r'([가-힣][가-힣\w\s]*?)\(' + re.escape(number) + r'\)', part)
+                            # Extract just the relevant part for this number using the same pattern
+                            part_match = re.search(r'([가-힣0-9]{2,}(?:\s[가-힣0-9]{1,8}(?:\s[가-힣0-9]{1,8})?)?)\(' + re.escape(number) + r'\)', part)
                             if part_match:
                                 label = part_match.group(1).strip()
                                 break
 
                 # Clean and validate label
                 label = self._clean_label(label)
+
+                # Check space count in the cleaned label (max 2 spaces allowed)
+                if label.count(' ') > 2:
+                    # Too many spaces, skip this mapping
+                    continue
 
                 # Only accept valid component names
                 if label and 2 <= len(label) <= 30 and not self._is_sentence(label):
@@ -258,11 +280,103 @@ class TextAnalyzer:
         return text
     
     def _clean_label(self, label: str) -> str:
-        # Remove common prefixes
-        prefixes_to_remove = ['상기', '해당', '본', '이', '그', '저']
+        original_label = label  # Keep original for fallback
+
+        # Remove adverbial phrases (부사구 제거)
+        # "동시에", "즉시", "함께" 등의 부사와 그 앞부분 제거
+        adverb_patterns = [
+            r'.*\s+동시에\s+',      # ~동시에
+            r'^동시에\s+',          # 동시에 (문장 시작)
+            r'.*\s+즉시\s+',        # ~즉시
+            r'^즉시\s+',            # 즉시 (문장 시작)
+            r'.*\s+함께\s+',        # ~함께
+            r'^함께\s+',            # 함께 (문장 시작)
+            r'.*\s+순차적으로\s+',  # ~순차적으로
+            r'^순차적으로\s+',      # 순차적으로 (문장 시작)
+            r'.*\s+동일하게\s+',    # ~동일하게
+            r'^동일하게\s+',        # 동일하게 (문장 시작)
+            r'.*\s+각각\s+',        # ~각각
+            r'^각각\s+',            # 각각 (문장 시작)
+            r'.*됨과\s+동시에\s+',  # ~됨과 동시에
+        ]
+
+        for pattern in adverb_patterns:
+            match = re.match(pattern, label)
+            if match:
+                # Keep only the part after the adverb
+                cleaned_part = label[match.end():].strip()
+                if len(cleaned_part) >= 2:
+                    label = cleaned_part
+                break
+
+        # Remove adnominal clauses (관형어구 제거)
+        # "~를 위한", "~하기 위한", "~하는", "~된" 등의 패턴에서 뒷부분만 추출
+        adnominal_patterns = [
+            r'.*[을를]\s*위한\s+',  # ~를 위한
+            r'.*하기\s*위한\s+',     # ~하기 위한
+            r'.*시키기\s*위한\s+',   # ~시키기 위한
+            r'.*[을를]\s*이용한\s+', # ~를 이용한
+            r'.*[을를]\s*통한\s+',   # ~를 통한
+            r'.*[을를]\s*통해\s+',   # ~를 통해
+        ]
+
+        adnominal_cleaned = False
+        for pattern in adnominal_patterns:
+            match = re.match(pattern, label)
+            if match:
+                # Keep only the part after the adnominal clause
+                cleaned_part = label[match.end():].strip()
+                # Only use cleaned version if it's not too short
+                if len(cleaned_part) >= 2:
+                    label = cleaned_part
+                    adnominal_cleaned = True
+                break
+
+        # Handle simple adnominal forms like "회전하는", "설치된" if not already cleaned
+        if not adnominal_cleaned:
+            simple_adnominal_patterns = [
+                r'.*되는\s+',           # ~되는
+                r'.*하는\s+',           # ~하는
+                r'.*[된한]\s+',         # ~된, ~한
+            ]
+            for pattern in simple_adnominal_patterns:
+                match = re.match(pattern, label)
+                if match:
+                    cleaned_part = label[match.end():].strip()
+                    # For simple adnominals, keep original if result is too short
+                    if len(cleaned_part) < 2:
+                        # Keep the original for short results
+                        return original_label.strip()
+                    label = cleaned_part
+                    break
+
+        # First, remove verb parts if they exist
+        verb_endings = ['하여', '하고', '하며', '하는', '하기', '되어', '되고', '되며', '되는', '함으로써', '하면서', '하도록']
+        for ending in verb_endings:
+            if ending in label:
+                # Split by verb ending and take the last part
+                parts = label.split(ending)
+                if len(parts) > 1:
+                    label = parts[-1].strip()
+
+        # Remove common prefixes (but not position/order indicators)
+        # 지시 대명사 및 관형사 제거
+        prefixes_to_remove = ['상기', '해당', '본', '그', '저', '이', '이들', '이러한', '그러한', '저러한', '모든', '각', '각각의']
         for prefix in prefixes_to_remove:
             if label.startswith(prefix + ' '):
                 label = label[len(prefix):].strip()
+
+        # Remove only pure adjectives (순수 형용사만 제거, 명사형 유지)
+        # 위치/순서/구조를 나타내는 명사는 유지: 상부, 하부, 메인, 서브, 제1, 제2 등
+        adjectives_to_remove = [
+            '새로운', '기존의', '각각의', '모든', '특정', '일반적인',
+            '큰', '작은', '긴', '짧은', '넓은', '좁은', '높은', '낮은',
+            '복잡한', '간단한', '다양한', '특별한', '중요한', '일반적인'
+        ]
+        for adj in adjectives_to_remove:
+            if label.startswith(adj + ' '):
+                label = label[len(adj):].strip()
+            label = label.replace(' ' + adj + ' ', ' ')  # 중간에 있는 경우
 
         # Remove trailing punctuation
         label = re.sub(r'[,，.。;；、]+$', '', label)

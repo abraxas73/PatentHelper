@@ -236,14 +236,15 @@ class ImageAnnotator:
         left_regions = []
         right_regions = []
         
-        # Sort regions into left and right based on position
+        # Sort regions into left and right based on position in original image
         for region in numbered_regions:
             # Skip if no mapping exists for this number
             if region['number'] not in number_mappings:
                 continue
-            
-            center_x = region['center']['x'] + left_expansion
-            if center_x < (expanded_width / 2):
+
+            # Use original image center for determining left/right
+            original_center_x = region['center']['x']
+            if original_center_x < (original_width / 2):
                 left_regions.append(region)
             else:
                 right_regions.append(region)
