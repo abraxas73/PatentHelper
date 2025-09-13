@@ -226,11 +226,48 @@ def process_with_ocr(job_id, pdf_filename):
         image_info_list.sort(key=lambda x: x['page_num'])
         sorted_paths = [info['path'] for info in image_info_list]
         
-        # PDF 생성 (제목 없이)
-        pdf_path = pdf_generator.create_from_images(
-            sorted_paths,
-            output_path=temp_dir / f"{job_id}_annotated.pdf"
-        )
+        # Download original PDF from S3 for merging
+        original_pdf_path = temp_dir / pdf_filename
+        pdf_s3_key_original = f"uploads/{pdf_filename}"
+
+        try:
+            s3.download_file(BUCKET_NAME, pdf_s3_key_original, str(original_pdf_path))
+            print(f"Downloaded original PDF from S3: {pdf_s3_key_original}")
+
+            # Prepare extracted images with page info for create_annotated_pdf
+            extracted_with_page_info = []
+            for img_info in extracted_images_s3:
+                # Extract page number from filename (e.g., page1_img1.png)
+                import re
+                match = re.search(r'page(\d+)_', img_info.get('filename', ''))
+                if match:
+                    page_num = int(match.group(1)) - 1  # 0-indexed
+                else:
+                    page_num = img_info.get('page_num', 0)
+
+                extracted_with_page_info.append({
+                    'file_path': img_info.get('file_path'),
+                    'filename': img_info.get('filename'),
+                    'original_page': page_num,
+                    'bbox': img_info.get('bbox')  # Include bbox if available
+                })
+
+            # Use create_annotated_pdf to merge with original PDF
+            pdf_path = pdf_generator.create_annotated_pdf(
+                original_pdf_path,
+                extracted_with_page_info,
+                sorted_paths,
+                output_filename=f"{job_id}_annotated.pdf"
+            )
+            print(f"Created annotated PDF with original merging: {pdf_path}")
+
+        except Exception as e:
+            print(f"Failed to merge with original PDF, falling back to image-only PDF: {e}")
+            # Fallback to simple image-based PDF if merging fails
+            pdf_path = pdf_generator.create_from_images(
+                sorted_paths,
+                output_path=temp_dir / f"{job_id}_annotated.pdf"
+            )
         
         # Upload PDF to S3
         pdf_s3_key = f"results/{job_id}/annotated_document.pdf"

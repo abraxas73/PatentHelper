@@ -50,7 +50,7 @@ def lambda_handler(event, context):
             'message': 'OCR 작업을 시작합니다...',
             'progress': 5,
             'createdAt': timestamp,
-            'ttl': timestamp + 86400  # Expire after 24 hours
+            'ttl': timestamp + 2592000  # Expire after 30 days
         }
         
         # If extraction job ID provided, copy extracted images from that job

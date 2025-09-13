@@ -48,7 +48,7 @@ def lambda_handler(event, context):
                 'status': 'PENDING',
                 'message': '파일 업로드 대기 중...',
                 'createdAt': timestamp,
-                'ttl': timestamp + 86400  # Expire after 24 hours
+                'ttl': timestamp + 2592000  # Expire after 30 days
             }
         )
         

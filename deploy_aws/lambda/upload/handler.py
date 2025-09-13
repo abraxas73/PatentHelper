@@ -68,7 +68,7 @@ def lambda_handler(event, context):
                 'message': 'Initializing processing environment (this may take 1-2 minutes for the first job)...',
                 'progress': 1,
                 'createdAt': timestamp,
-                'ttl': timestamp + 86400,  # Expire after 24 hours
+                'ttl': timestamp + 2592000,  # Expire after 30 days
                 'fileSize': len(file_content),
                 'estimatedTime': 120  # Estimated seconds
             }
