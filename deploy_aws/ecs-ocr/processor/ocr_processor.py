@@ -233,7 +233,7 @@ def process_with_ocr(job_id, pdf_filename):
         pdf_s3_key_original = None
 
         # First try: Check if there's an extraction job with the PDF
-        extraction_job_id = item.get('extractionJobId')
+        extraction_job_id = job_data.get('extractionJobId')
         if extraction_job_id:
             # Original PDF should be in uploads/extraction-job-id/filename
             pdf_s3_key_original = f"uploads/{extraction_job_id}/{pdf_filename}"
