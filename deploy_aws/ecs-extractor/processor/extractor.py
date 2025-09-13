@@ -107,7 +107,8 @@ def extract_mappings(job_id, s3_key):
                         'filename': filename,
                         'width': img_data['pil_image'].width,
                         'height': img_data['pil_image'].height,
-                        'page_num': img_data['page']
+                        'page_num': img_data['page'],
+                        'bbox': img_data.get('bbox')  # Include bbox information
                     })
             
             # Upload extracted images to S3
@@ -120,13 +121,14 @@ def extract_mappings(job_id, s3_key):
                 filename = os.path.basename(img_info['file_path'])
                 s3_key = f"results/{job_id}/extracted/{filename}"
                 s3.upload_file(img_info['file_path'], BUCKET_NAME, s3_key)
-                
+
                 extracted_s3_keys.append({
                     'file_path': s3_key,
                     'filename': filename,
                     'width': img_info.get('width'),
                     'height': img_info.get('height'),
-                    'page_num': img_info.get('page_num')
+                    'page_num': img_info.get('page_num'),
+                    'bbox': img_info.get('bbox')  # Include bbox information
                 })
             
             # Extract number mappings from text
