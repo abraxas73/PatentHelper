@@ -245,8 +245,10 @@ class ImageAnnotator:
             # Use original image center for determining left/right
             original_center_x = region['center']['x']
             if original_center_x < (original_width / 2):
+                region['side'] = 'left'  # Store side information
                 left_regions.append(region)
             else:
+                region['side'] = 'right'  # Store side information
                 right_regions.append(region)
         
         # Process regions in batches for better performance
@@ -270,9 +272,11 @@ class ImageAnnotator:
             }
             
             # Calculate optimal label position in expanded areas with overlap avoidance
+            # Pass the pre-determined side information
+            side = region.get('side', 'left')  # Get stored side information
             try:
                 arrow_start, bend_point = self._calculate_optimal_label_position_expanded(
-                    expanded_img, adjusted_center, bbox, left_expansion, right_expansion, label_positions, working_font
+                    expanded_img, adjusted_center, bbox, left_expansion, right_expansion, label_positions, working_font, side
                 )
             except Exception as e:
                 logger.error(f"Failed to calculate position for region {number}: {e}")
@@ -418,7 +422,7 @@ class ImageAnnotator:
         return arrow_start, bend_point
     
     def _calculate_optimal_label_position_expanded(self, expanded_img: Image, center: Dict, bbox: Dict,
-                                                   left_expansion: int, right_expansion: int, label_positions: Dict, font) -> Tuple[Tuple[int, int], Tuple[int, int]]:
+                                                   left_expansion: int, right_expansion: int, label_positions: Dict, font, side: str = None) -> Tuple[Tuple[int, int], Tuple[int, int]]:
         """
         Calculate optimal label position in expanded side areas with overlap avoidance
         Returns: (arrow_start, bend_point) positions
@@ -430,10 +434,6 @@ class ImageAnnotator:
         original_left = left_expansion
         original_right = img_width - right_expansion
         original_width = original_right - original_left
-
-        # Determine side based on position in ORIGINAL image
-        # cx is already adjusted with left_expansion, so we need to get original position
-        original_cx = cx - left_expansion
 
         # Calculate label dimensions for proper positioning
         label_width = 150  # Estimated max label width
@@ -451,8 +451,8 @@ class ImageAnnotator:
             except:
                 pass
 
-        # Use original image center to determine side
-        if original_cx < (original_width / 2):
+        # Use the pre-determined side if provided, otherwise calculate
+        if side == 'left':
             # Use left expansion area - position label OUTSIDE the drawing area
             side = 'left'
             # Ensure minimum arrow length of 10px from number to label
@@ -473,7 +473,7 @@ class ImageAnnotator:
             base_y = cy
             # Bend point for L-shaped arrow
             bend_point = (cx - 20, cy)  # Left of number for proper L-shape
-        else:
+        elif side == 'right':
             # Use right expansion area - position label INSIDE the drawing area
             side = 'right'
             # Calculate position to ensure minimum 10px arrow from number to label
@@ -503,7 +503,38 @@ class ImageAnnotator:
             base_y = cy
             # Bend point for L-shaped arrow
             bend_point = (cx + 20, cy)  # Right of number for proper L-shape
-        
+        else:
+            # Fallback: determine based on original position if side not provided
+            original_cx = cx - left_expansion
+            if original_cx < (original_width / 2):
+                side = 'left'
+                # Same logic as left side
+                arrow_min_length = 10
+                max_label_right = cx - arrow_min_length
+                ideal_label_x = original_left - label_width - 15
+                if ideal_label_x + label_width > max_label_right:
+                    label_x = max_label_right - label_width
+                else:
+                    label_x = ideal_label_x
+                base_y = cy
+                bend_point = (cx - 20, cy)
+            else:
+                side = 'right'
+                # Same logic as right side
+                arrow_min_length = 10
+                min_label_x = cx + arrow_min_length
+                number_clearance = cx + 50
+                padding = 10
+                ideal_label_x = original_right - label_width - padding
+                if ideal_label_x < number_clearance:
+                    label_x = number_clearance
+                elif ideal_label_x < min_label_x:
+                    label_x = min_label_x
+                else:
+                    label_x = ideal_label_x
+                base_y = cy
+                bend_point = (cx + 20, cy)
+
         # Check for overlaps with existing labels on the same side
         label_height = 25  # Approximate label height
         final_y = base_y
