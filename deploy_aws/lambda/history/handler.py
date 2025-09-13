@@ -23,7 +23,7 @@ def lambda_handler(event, context):
         # Get query parameters
         query_params = event.get('queryStringParameters') or {}
         user_id = query_params.get('userId')
-        limit = int(query_params.get('limit', 20))
+        limit = int(query_params.get('limit', 100))  # Increased default limit
         
         if user_id:
             # Query by userId using GSI

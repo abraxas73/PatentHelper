@@ -289,10 +289,10 @@
         <h3>추출된 도면</h3>
         <div class="image-grid">
           <div v-for="(img, index) in extractedImages" :key="img.file_path || index" class="image-item">
-            <img 
-              :src="getImageUrl(img)" 
+            <img
+              :src="getImageUrl(img)"
               :alt="img.filename || `도면 ${index + 1}`"
-              @click="openModal(getImageUrl(img))"
+              @click="openModal({ url: getImageUrl(img), filename: img.filename || `도면 ${index + 1}`, key: img.file_path })"
             />
             <div class="image-caption">{{ img.filename || `도면 ${index + 1}` }}</div>
           </div>
@@ -1249,9 +1249,10 @@ export default {
           history.unshift(job)
         }
         
-        // Keep only last 50 jobs
-        if (history.length > 50) {
-          history.pop()
+        // Keep more history (up to 500 jobs)
+        if (history.length > 500) {
+          // Remove oldest entries if exceeding limit
+          history.splice(500)
         }
         localStorage.setItem('jobHistory', JSON.stringify(history))
         loadHistory()
@@ -1267,8 +1268,9 @@ export default {
         } else {
           history.unshift(job)
         }
-        if (history.length > 50) {
-          history.pop()
+        if (history.length > 500) {
+          // Remove oldest entries if exceeding limit
+          history.splice(500)
         }
         localStorage.setItem('jobHistory', JSON.stringify(history))
         // AWS 환경에서는 주기적으로 DynamoDB에서 동기화
@@ -1315,11 +1317,11 @@ export default {
             return date.getFullYear() > 2020
           })
           
-          jobHistory.value = localHistory.slice(0, 50) // Keep only latest 50
+          jobHistory.value = localHistory // Show all history
         } 
         // AWS 환경: DynamoDB에서 가져오기
         else {
-          const response = await axios.get(`${config.API_URL}/history`)
+          const response = await axios.get(`${config.API_URL}/history?limit=500`)
           jobHistory.value = response.data.history || []
           
           // DynamoDB 데이터를 localStorage에 백업 (오프라인 대비)

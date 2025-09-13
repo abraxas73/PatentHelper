@@ -417,7 +417,7 @@ class ImageAnnotator:
         
         return arrow_start, bend_point
     
-    def _calculate_optimal_label_position_expanded(self, expanded_img: Image, center: Dict, bbox: Dict, 
+    def _calculate_optimal_label_position_expanded(self, expanded_img: Image, center: Dict, bbox: Dict,
                                                    left_expansion: int, right_expansion: int, label_positions: Dict, font) -> Tuple[Tuple[int, int], Tuple[int, int]]:
         """
         Calculate optimal label position in expanded side areas with overlap avoidance
@@ -425,15 +425,16 @@ class ImageAnnotator:
         """
         img_width, img_height = expanded_img.size
         cx, cy = int(center['x']), int(center['y'])
-        
+
         # Original image boundaries (center area to avoid)
         original_left = left_expansion
         original_right = img_width - right_expansion
-        
-        # Choose the closer side for the label
-        distance_to_left = abs(cx - original_left)
-        distance_to_right = abs(cx - original_right)
-        
+        original_width = original_right - original_left
+
+        # Determine side based on position in ORIGINAL image
+        # cx is already adjusted with left_expansion, so we need to get original position
+        original_cx = cx - left_expansion
+
         # Calculate label dimensions for proper positioning
         label_width = 150  # Estimated max label width
         if font:
@@ -449,8 +450,9 @@ class ImageAnnotator:
                         break
             except:
                 pass
-        
-        if distance_to_left <= distance_to_right:
+
+        # Use original image center to determine side
+        if original_cx < (original_width / 2):
             # Use left expansion area - position label OUTSIDE the drawing area
             side = 'left'
             # Ensure minimum arrow length of 10px from number to label
