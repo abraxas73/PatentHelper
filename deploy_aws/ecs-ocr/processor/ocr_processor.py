@@ -228,7 +228,36 @@ def process_with_ocr(job_id, pdf_filename):
         
         # Download original PDF from S3 for merging
         original_pdf_path = temp_dir / pdf_filename
-        pdf_s3_key_original = f"uploads/{pdf_filename}"
+
+        # Try to find the original PDF in different possible locations
+        pdf_s3_key_original = None
+
+        # First try: Check if there's an extraction job with the PDF
+        extraction_job_id = item.get('extractionJobId')
+        if extraction_job_id:
+            # Original PDF should be in uploads/extraction-job-id/filename
+            pdf_s3_key_original = f"uploads/{extraction_job_id}/{pdf_filename}"
+        else:
+            # Fallback: Try to find the PDF by listing objects
+            try:
+                response = s3.list_objects_v2(
+                    Bucket=BUCKET_NAME,
+                    Prefix=f"uploads/",
+                    MaxKeys=100
+                )
+                if 'Contents' in response:
+                    for obj in response['Contents']:
+                        if obj['Key'].endswith(pdf_filename):
+                            pdf_s3_key_original = obj['Key']
+                            print(f"Found original PDF at: {pdf_s3_key_original}")
+                            break
+            except Exception as e:
+                print(f"Error listing objects: {e}")
+
+        if not pdf_s3_key_original:
+            # Last fallback: use simple path
+            pdf_s3_key_original = f"uploads/{pdf_filename}"
+            print(f"Using fallback path: {pdf_s3_key_original}")
 
         try:
             s3.download_file(BUCKET_NAME, pdf_s3_key_original, str(original_pdf_path))
