@@ -12,6 +12,7 @@ import tempfile
 import traceback
 from datetime import datetime
 from pathlib import Path
+from decimal import Decimal
 
 import boto3
 
@@ -30,6 +31,19 @@ JOB_ID = os.environ.get('JOB_ID')
 S3_KEY = os.environ.get('S3_KEY')
 BUCKET_NAME = os.environ.get('BUCKET_NAME', 'patent-helper-documents-prod')
 TABLE_NAME = os.environ.get('TABLE_NAME', 'patent-helper-jobs-prod')
+
+def convert_floats_to_decimal(obj):
+    """
+    Recursively convert all float values to Decimal for DynamoDB compatibility
+    """
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    elif isinstance(obj, dict):
+        return {key: convert_floats_to_decimal(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_floats_to_decimal(item) for item in obj]
+    else:
+        return obj
 
 def update_job_status(job_id, status, **kwargs):
     """Update job status in DynamoDB"""
@@ -122,13 +136,18 @@ def extract_mappings(job_id, s3_key):
                 s3_key = f"results/{job_id}/extracted/{filename}"
                 s3.upload_file(img_info['file_path'], BUCKET_NAME, s3_key)
 
+                # Convert bbox floats to Decimal for DynamoDB
+                bbox_data = img_info.get('bbox')
+                if bbox_data:
+                    bbox_data = convert_floats_to_decimal(bbox_data)
+
                 extracted_s3_keys.append({
                     'file_path': s3_key,
                     'filename': filename,
                     'width': img_info.get('width'),
                     'height': img_info.get('height'),
                     'page_num': img_info.get('page_num'),
-                    'bbox': img_info.get('bbox')  # Include bbox information
+                    'bbox': bbox_data  # Include converted bbox information
                 })
             
             # Extract number mappings from text
