@@ -144,3 +144,5 @@ deploy_aws/lambda/**/.DS_Store
 !deploy_aws/lambda/**/requirements.txt
 !deploy_aws/lambda/**/*.json
 
+*.log
+

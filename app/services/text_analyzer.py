@@ -8,27 +8,27 @@ logger = logging.getLogger(__name__)
 class TextAnalyzer:
     def __init__(self):
         # Patterns for extracting number-label mappings (부호의 설명 섹션)
-        # Now supports alphanumeric patterns like 156a, 156b
+        # Now supports alphanumeric patterns like 156a, 156b and hyphenated patterns like 111a-1, 111a-2
         self.patterns = {
-            'basic': r'(\d{1,4}[a-zA-Z]?)\s*[:：]\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?\s*[:：]|$|\n)',
-            'dash': r'(\d{1,4}[a-zA-Z]?)\s*[-－]\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?\s*[-－]|$|\n)',
-            'dots': r'(\d{1,4}[a-zA-Z]?)\s*[\.…]+\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?\s*[\.…]|$|\n)',
-            'parenthesis': r'(\d{1,4}[a-zA-Z]?)\s*\)\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?\s*\)|$|\n)',
-            'korean_style': r'(\d{1,4}[a-zA-Z]?)\s*은\s+([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?\s*은|$|\n)',
-            'reference': r'참조\s*번호\s*(\d{1,4}[a-zA-Z]?)\s*[:：]?\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?|$|\n)',
-            'symbol_list': r'<\s*(\d{1,4}[a-zA-Z]?)\s*>\s*([가-힣][가-힣\w\s]*?)(?=\s*<\s*\d{1,4}[a-zA-Z]?\s*>|$|\n)',
-            'bracket': r'\[\s*(\d{1,4}[a-zA-Z]?)\s*\]\s*([가-힣][가-힣\w\s]*?)(?=\s*\[\s*\d{1,4}[a-zA-Z]?\s*\]|$|\n)',
-            'comma_style': r'(\d{1,4}[a-zA-Z]?)\s*[,，]\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?\s*[,，]|$|\n)',
-            'space_only': r'^\s*(\d{1,4}[a-zA-Z]?)\s+([가-힣][가-힣\w\s]+)',
-            'tab_style': r'(\d{1,4}[a-zA-Z]?)\t+([가-힣\w\s]+)'
+            'basic': r'(\d{1,4}[a-zA-Z]?(?:-\d+)?)\s*[:：]\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?(?:-\d+)?\s*[:：]|$|\n)',
+            'dash': r'(\d{1,4}[a-zA-Z]?(?:-\d+)?)\s*[-－]\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?(?:-\d+)?\s*[-－]|$|\n)',
+            'dots': r'(\d{1,4}[a-zA-Z]?(?:-\d+)?)\s*[\.…]+\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?(?:-\d+)?\s*[\.…]|$|\n)',
+            'parenthesis': r'(\d{1,4}[a-zA-Z]?(?:-\d+)?)\s*\)\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?(?:-\d+)?\s*\)|$|\n)',
+            'korean_style': r'(\d{1,4}[a-zA-Z]?(?:-\d+)?)\s*은\s+([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?(?:-\d+)?\s*은|$|\n)',
+            'reference': r'참조\s*번호\s*(\d{1,4}[a-zA-Z]?(?:-\d+)?)\s*[:：]?\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?(?:-\d+)?|$|\n)',
+            'symbol_list': r'<\s*(\d{1,4}[a-zA-Z]?(?:-\d+)?)\s*>\s*([가-힣][가-힣\w\s]*?)(?=\s*<\s*\d{1,4}[a-zA-Z]?(?:-\d+)?\s*>|$|\n)',
+            'bracket': r'\[\s*(\d{1,4}[a-zA-Z]?(?:-\d+)?)\s*\]\s*([가-힣][가-힣\w\s]*?)(?=\s*\[\s*\d{1,4}[a-zA-Z]?(?:-\d+)?\s*\]|$|\n)',
+            'comma_style': r'(\d{1,4}[a-zA-Z]?(?:-\d+)?)\s*[,，]\s*([가-힣][가-힣\w\s]*?)(?=\s*\d{1,4}[a-zA-Z]?(?:-\d+)?\s*[,，]|$|\n)',
+            'space_only': r'^\s*(\d{1,4}[a-zA-Z]?(?:-\d+)?)\s+([가-힣][가-힣\w\s]+)',
+            'tab_style': r'(\d{1,4}[a-zA-Z]?(?:-\d+)?)\t+([가-힣\w\s]+)'
         }
 
         # Pattern for inline format: "명칭(숫자)"
-        # 1단어: 글자 수 제한 없음 (2글자 이상)
-        # 2-3단어: 각 단어 최대 8글자, 공백 최대 2개
-        # Pattern allows: "제1 제어부", "제2 제어부" with digits in Korean words
-        # Also captures adnominal forms like "회전하는 축", "고정시키기 위한 걸림고리"
-        self.inline_pattern = r'(?:^|[\s,.]|상기\s+)((?:[가-힣0-9]+\s*(?:을|를|이|가|에|의|와|과|으로|로|하는|되는|된|한|시키기)?\s*(?:위한\s+)?)?[가-힣0-9]{2,}(?:\s[가-힣0-9]{1,8}(?:\s[가-힣0-9]{1,8})?)?)\((\d{1,4}[a-zA-Z]?)\)'
+        # Captures Korean, English, numbers, and mixed terms
+        # Examples: "CFD시뮬레이션(113)", "진동수주실모사부(110)", "제1 제어부(101)", "물리량산정부(111a-1)"
+        # Simplified pattern without word boundary to capture mixed Korean-English terms
+        # Now supports hyphenated patterns like 111a-1, 111a-2
+        self.inline_pattern = r'([가-힣A-Za-z0-9]+(?:[가-힣A-Za-z0-9\s]*[가-힣A-Za-z0-9]+)?)\((\d{1,4}[a-zA-Z]?(?:-\d+)?)\)'
         
         # Keywords that indicate part/component listings
         self.part_list_keywords = [
@@ -56,26 +56,38 @@ class TextAnalyzer:
             # Extract mappings from part list section (higher priority)
             mappings = self._extract_from_section(part_list_section)
             logger.info(f"Found {len(mappings)} mappings from part list section")
+            logger.debug(f"Part list mappings: {list(mappings.keys())}")
 
         # Extract inline format mappings "명칭(숫자)" from entire text
         inline_mappings = self._extract_inline_mappings(text)
         if inline_mappings:
             logger.info(f"Found {len(inline_mappings)} inline mappings")
+            logger.debug(f"Inline mappings: {list(inline_mappings.keys())}")
             # Merge inline mappings, but don't overwrite existing ones
             for num, label in inline_mappings.items():
                 if num not in mappings:
                     mappings[num] = label
+                    logger.debug(f"Added inline mapping: {num} -> {label}")
+                else:
+                    logger.debug(f"Skipped inline mapping (already exists): {num} -> {label}")
 
         # If not enough mappings found, search entire text with traditional patterns
         if len(mappings) < 10:  # Increased threshold
+            logger.info(f"Only {len(mappings)} mappings found, searching full text...")
             full_text_mappings = self._extract_from_section(text)
+            logger.debug(f"Full text mappings: {list(full_text_mappings.keys())}")
             # Merge, preferring part list mappings
             for num, label in full_text_mappings.items():
                 if num not in mappings:
                     mappings[num] = label
+                    logger.debug(f"Added full text mapping: {num} -> {label}")
 
         # Post-process mappings
         mappings = self._post_process_mappings(mappings)
+
+        # Log final mappings
+        logger.info(f"Final mappings count: {len(mappings)}")
+        logger.debug(f"Final mapping numbers: {sorted(mappings.keys())}")
 
         return mappings
     
@@ -179,6 +191,7 @@ class TextAnalyzer:
                 label = match.group(1).strip()
                 number = match.group(2).strip()
 
+
                 # Check if there are extra words before the match (공백 3개 이상 체크)
                 # Get text before the match
                 start_pos = match.start()
@@ -199,7 +212,8 @@ class TextAnalyzer:
                     for part in parts:
                         if f'({number})' in part:
                             # Extract just the relevant part for this number using the same pattern
-                            part_match = re.search(r'([가-힣0-9]{2,}(?:\s[가-힣0-9]{1,8}(?:\s[가-힣0-9]{1,8})?)?)\(' + re.escape(number) + r'\)', part)
+                            # Include English letters (A-Za-z) for mixed terms like "CFD시뮬레이션"
+                            part_match = re.search(r'([가-힣A-Za-z0-9]{2,}(?:\s[가-힣A-Za-z0-9]{1,8}(?:\s[가-힣A-Za-z0-9]{1,8})?)?)\(' + re.escape(number) + r'\)', part)
                             if part_match:
                                 label = part_match.group(1).strip()
                                 break
@@ -214,7 +228,8 @@ class TextAnalyzer:
 
                 # Only accept valid component names
                 if label and 2 <= len(label) <= 30 and not self._is_sentence(label):
-                    if number not in mappings or len(label) < len(mappings[number]):
+                    if number not in mappings or len(label) > len(mappings[number]):
+                        # Prefer longer, more specific labels
                         mappings[number] = label
                         logger.debug(f"Found inline mapping: {number} -> {label}")
 
@@ -360,9 +375,21 @@ class TextAnalyzer:
                     label = parts[-1].strip()
 
         # Remove common prefixes (but not position/order indicators)
-        # 지시 대명사 및 관형사 제거
-        prefixes_to_remove = ['상기', '해당', '본', '그', '저', '이', '이들', '이러한', '그러한', '저러한', '모든', '각', '각각의']
-        for prefix in prefixes_to_remove:
+        # 복합 지시형용사구를 먼저 제거 (긴 패턴 우선)
+        complex_prefixes_to_remove = [
+            '이와 같은', '그와 같은', '저와 같은',  # "~와 같은" 패턴
+            '이와 유사한', '그와 유사한',            # "~와 유사한" 패턴
+            '이러한', '그러한', '저러한',            # "~러한" 패턴
+            '각각의', '모든', '다양한',              # 기타 형용사구
+            '동일한', '유사한', '관련된', '해당하는'  # 관계 형용사
+        ]
+        for prefix in complex_prefixes_to_remove:
+            if label.startswith(prefix + ' '):
+                label = label[len(prefix):].strip()
+
+        # 단순 지시 대명사 및 관형사 제거
+        simple_prefixes_to_remove = ['상기', '해당', '본', '그', '저', '이', '이들', '각']
+        for prefix in simple_prefixes_to_remove:
             if label.startswith(prefix + ' '):
                 label = label[len(prefix):].strip()
 

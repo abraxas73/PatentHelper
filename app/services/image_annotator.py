@@ -123,7 +123,7 @@ class ImageAnnotator:
         for region in numbered_regions:
             detected_num = region['number']
             corrected_num = detected_num
-            
+
             # Check if detected number is not in mappings
             if detected_num not in number_mappings:
                 # Check confusion pairs
@@ -146,7 +146,152 @@ class ImageAnnotator:
             corrected_regions.append(corrected_region)
         
         return corrected_regions
-    
+
+    def find_drawing_boundaries(self, img: Image) -> Tuple[int, int]:
+        """
+        Find the actual drawing boundaries by detecting non-white content areas.
+        Returns left and right boundaries of the actual drawing content.
+        """
+        import numpy as np
+
+        # Convert to numpy array
+        img_array = np.array(img)
+
+        # Convert to grayscale if needed
+        if len(img_array.shape) == 3:
+            gray = np.mean(img_array, axis=2)
+        else:
+            gray = img_array
+
+        # Find non-white pixels (threshold at 250 to account for slight variations)
+        threshold = 250
+        has_content = gray < threshold
+
+        # Find columns that have content
+        column_has_content = np.any(has_content, axis=0)
+
+        # Find left and right boundaries
+        content_indices = np.where(column_has_content)[0]
+
+        if len(content_indices) > 0:
+            drawing_left = int(content_indices[0])
+            drawing_right = int(content_indices[-1])
+
+            # Add small margin to avoid edge cases
+            margin = 10
+            drawing_left = max(0, drawing_left - margin)
+            drawing_right = min(img.size[0] - 1, drawing_right + margin)
+        else:
+            # Fallback to full image if no content detected
+            drawing_left = 0
+            drawing_right = img.size[0] - 1
+
+        return drawing_left, drawing_right
+
+    def find_multiple_drawing_regions(self, img: Image, numbered_regions: List[Dict]) -> List[Dict]:
+        """
+        Detect multiple drawing regions in a single page by analyzing Y-coordinates clustering.
+        Returns a list of drawing regions with their boundaries and associated numbers.
+        """
+        import numpy as np
+
+        if not numbered_regions:
+            # No regions to analyze, return single drawing region
+            left, right = self.find_drawing_boundaries(img)
+            return [{
+                'id': 0,
+                'boundaries': {'left': left, 'right': right, 'top': 0, 'bottom': img.size[1]},
+                'center': (left + right) / 2,
+                'numbers': []
+            }]
+
+        # Extract Y-coordinates of all numbered regions
+        y_coords = [region['center']['y'] for region in numbered_regions]
+
+        # Use simple clustering based on Y-coordinate gaps
+        # Drawings are typically separated by significant vertical gaps
+        sorted_regions = sorted(numbered_regions, key=lambda r: r['center']['y'])
+
+        drawing_clusters = []
+        current_cluster = [sorted_regions[0]]
+
+        # Threshold for separating drawings (adjust based on typical drawing separation)
+        Y_GAP_THRESHOLD = 100  # pixels - adjust if needed
+
+        for region in sorted_regions[1:]:
+            prev_y = current_cluster[-1]['center']['y']
+            curr_y = region['center']['y']
+
+            if curr_y - prev_y > Y_GAP_THRESHOLD:
+                # Start new cluster (new drawing region)
+                drawing_clusters.append(current_cluster)
+                current_cluster = [region]
+            else:
+                # Add to current cluster
+                current_cluster.append(region)
+
+        # Add the last cluster
+        if current_cluster:
+            drawing_clusters.append(current_cluster)
+
+        # Process each cluster to find its boundaries
+        drawing_regions = []
+        for idx, cluster in enumerate(drawing_clusters):
+            # Find horizontal boundaries for this cluster
+            x_coords = [r['center']['x'] for r in cluster]
+            y_coords = [r['center']['y'] for r in cluster]
+
+            # Get min/max with some margin
+            margin = 50
+            left = max(0, min(x_coords) - margin)
+            right = min(img.size[0], max(x_coords) + margin)
+            top = max(0, min(y_coords) - margin)
+            bottom = min(img.size[1], max(y_coords) + margin)
+
+            # For more accurate left/right boundaries, analyze the image content in this Y-range
+            img_array = np.array(img)
+
+            # Crop to this Y-range for analysis
+            if len(img_array.shape) == 3:
+                cropped = img_array[int(top):int(bottom), :, :]
+                gray_cropped = np.mean(cropped, axis=2)
+            else:
+                cropped = img_array[int(top):int(bottom), :]
+                gray_cropped = cropped
+
+            # Find content boundaries in this region
+            threshold = 250
+            has_content = gray_cropped < threshold
+            column_has_content = np.any(has_content, axis=0)
+            content_indices = np.where(column_has_content)[0]
+
+            if len(content_indices) > 0:
+                content_left = int(content_indices[0])
+                content_right = int(content_indices[-1])
+
+                # Use content boundaries if they're more restrictive
+                left = max(left, content_left - 10)
+                right = min(right, content_right + 10)
+
+            center = (left + right) / 2
+
+            drawing_regions.append({
+                'id': idx,
+                'boundaries': {
+                    'left': left,
+                    'right': right,
+                    'top': top,
+                    'bottom': bottom
+                },
+                'center': center,
+                'numbers': cluster  # Store the associated numbered regions
+            })
+
+            logger.info(f"Drawing region {idx}: left={left:.0f}, right={right:.0f}, center={center:.0f}, "
+                       f"top={top:.0f}, bottom={bottom:.0f}, numbers={len(cluster)}")
+
+        return drawing_regions
+
     def annotate_image(self, 
                       image_path: str,
                       numbered_regions: List[Dict],
@@ -231,25 +376,55 @@ class ImageAnnotator:
         
         # Track label positions to avoid overlaps
         label_positions = {'left': [], 'right': []}
-        
+
+        # Detect multiple drawing regions
+        drawing_regions = self.find_multiple_drawing_regions(original_img, numbered_regions)
+
+        # Log drawing regions
+        logger.info(f"Detected {len(drawing_regions)} drawing region(s) in the image")
+
         # Performance optimization: batch process regions by side
         left_regions = []
         right_regions = []
-        
-        # Sort regions into left and right based on position in original image
+
+        # Assign drawing region to each numbered region and determine side
         for region in numbered_regions:
             # Skip if no mapping exists for this number
             if region['number'] not in number_mappings:
                 continue
 
-            # Use original image center for determining left/right
             original_center_x = region['center']['x']
-            if original_center_x < (original_width / 2):
-                region['side'] = 'left'  # Store side information
-                left_regions.append(region)
-            else:
-                region['side'] = 'right'  # Store side information
-                right_regions.append(region)
+            original_center_y = region['center']['y']
+
+            # Find which drawing region this number belongs to
+            assigned_drawing = None
+            for drawing in drawing_regions:
+                # Check if this number is in this drawing's cluster
+                if any(num['number'] == region['number'] for num in drawing['numbers']):
+                    assigned_drawing = drawing
+                    break
+
+            # If no drawing assigned (shouldn't happen), use the first one
+            if not assigned_drawing:
+                assigned_drawing = drawing_regions[0] if drawing_regions else None
+                logger.warning(f"Number {region['number']} not assigned to any drawing region, using default")
+
+            if assigned_drawing:
+                # Use this specific drawing's center for left/right determination
+                drawing_center = assigned_drawing['center']
+
+                # DEBUG: Log position information with drawing-specific center
+                side = 'left' if original_center_x < drawing_center else 'right'
+                logger.info(f"Number {region['number']}: x={original_center_x:.1f}, "
+                           f"drawing_id={assigned_drawing['id']}, drawing_center={drawing_center:.1f}, side={side}")
+
+                region['side'] = side  # Store side information
+                region['drawing_id'] = assigned_drawing['id']  # Store drawing ID
+
+                if side == 'left':
+                    left_regions.append(region)
+                else:
+                    right_regions.append(region)
         
         # Process regions in batches for better performance
         all_regions = left_regions + right_regions
@@ -450,6 +625,9 @@ class ImageAnnotator:
                         break
             except:
                 pass
+
+        # DEBUG: Log the side information
+        logger.info(f"_calculate_optimal_label_position_expanded: side={side}, cx={cx}, original_left={original_left}, original_right={original_right}")
 
         # Use the pre-determined side if provided, otherwise calculate
         if side == 'left':

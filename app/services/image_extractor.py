@@ -149,9 +149,19 @@ class ImageExtractor:
                 return []
             
             original_height, original_width = img.shape[:2]
-            
-            # Upscale image by 1.5x for better OCR accuracy
-            scale_factor = 1.5
+
+            # Adaptive scaling based on image size for better OCR accuracy
+            # Smaller images need more upscaling, larger images need less
+            max_dimension = max(original_width, original_height)
+            if max_dimension < 1000:
+                scale_factor = 2.5  # Small images: aggressive upscaling
+            elif max_dimension < 1500:
+                scale_factor = 2.2  # Medium-small images
+            elif max_dimension < 2000:
+                scale_factor = 2.0  # Medium images
+            else:
+                scale_factor = 1.5  # Large images: standard upscaling
+
             new_width = int(original_width * scale_factor)
             new_height = int(original_height * scale_factor)
             
@@ -170,7 +180,7 @@ class ImageExtractor:
                 preprocessed = self.preprocess_image_for_ocr(tmp_path)
                 
                 # OCR to detect all numbers - use upscaled preprocessed image
-                logger.info(f"Running OCR on 1.5x upscaled image ({new_width}x{new_height})")
+                logger.info(f"Running OCR on {scale_factor}x upscaled image ({new_width}x{new_height})")
                 results = self.reader.readtext(preprocessed)
                 
                 # Scale back the coordinates to original size
