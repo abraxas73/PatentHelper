@@ -228,6 +228,8 @@ def process_with_ocr(job_id, pdf_filename):
         
         # Download original PDF from S3 for merging
         original_pdf_path = temp_dir / pdf_filename
+        pdf_merge_success = False
+        completion_message = 'OCR 처리 및 PDF 생성이 완료되었습니다'
 
         # Try to find the original PDF in different possible locations
         pdf_s3_key_original = None
@@ -289,9 +291,11 @@ def process_with_ocr(job_id, pdf_filename):
                 output_filename=f"{job_id}_annotated.pdf"
             )
             print(f"Created annotated PDF with original merging: {pdf_path}")
+            pdf_merge_success = True
 
         except Exception as e:
             print(f"Failed to merge with original PDF, falling back to image-only PDF: {e}")
+            completion_message = 'OCR 처리 완료 (도면만 포함 - 원본 PDF 병합 실패)'
             # Fallback to simple image-based PDF if merging fails
             pdf_path = pdf_generator.create_from_images(
                 sorted_paths,
@@ -304,10 +308,10 @@ def process_with_ocr(job_id, pdf_filename):
         
         processing_time = time.time() - start_time
         
-        # Update job as completed
+        # Update job as completed with appropriate message
         update_job_status(
             job_id, 'COMPLETED',
-            message='OCR 처리 및 PDF 생성이 완료되었습니다',
+            message=completion_message,
             progress=100,
             extractedImages=extracted_s3_keys,
             annotatedImages=annotated_s3_keys,
