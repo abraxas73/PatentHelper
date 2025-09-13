@@ -89,7 +89,12 @@
           재작업
         </button>
         <span v-if="isProcessing || isProcessingOCR || currentJobId" class="processing-time">
-          처리 중... {{ processingTime }}초
+          <template v-if="jobStatus === 'COMPLETED'">
+            작업 시간: {{ processingTime }}초
+          </template>
+          <template v-else>
+            처리 중... {{ processingTime }}초
+          </template>
         </span>
       </div>
 
