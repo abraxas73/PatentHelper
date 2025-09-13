@@ -530,6 +530,10 @@ Resources:
                 Resource: !Sub ${DocumentBucket.Arn}/*
               - Effect: Allow
                 Action:
+                  - s3:ListBucket
+                Resource: !GetAtt DocumentBucket.Arn
+              - Effect: Allow
+                Action:
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
                   - sqs:ChangeMessageVisibility

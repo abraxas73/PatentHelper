@@ -28,7 +28,8 @@ def lambda_handler(event, context):
         days_back = int(query_params.get('days', 30))  # Default to 30 days
 
         # Calculate timestamp for filtering (30 days ago by default)
-        cutoff_timestamp = int((datetime.now() - timedelta(days=days_back)).timestamp() * 1000)
+        # Note: DynamoDB stores timestamps in seconds, not milliseconds
+        cutoff_timestamp = int((datetime.now() - timedelta(days=days_back)).timestamp())
 
         print(f"Querying history: userId={user_id}, limit={limit}, days_back={days_back}, cutoff={cutoff_timestamp}")
 
