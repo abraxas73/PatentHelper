@@ -201,25 +201,30 @@ def process_with_ocr(job_id, pdf_filename):
         # 페이지별 이미지 정보 준비
         image_info_list = []
         for i, (extracted_item, annotated_path) in enumerate(zip(extracted_images, annotated_paths)):
-            # extracted_item이 dict인 경우 key를 추출
+            # extracted_item이 dict인 경우 page_num과 key를 추출
             if isinstance(extracted_item, dict):
                 extracted_key = extracted_item.get('key') or extracted_item.get('s3_key') or extracted_item.get('file_path', '')
+                # Use page_num from dict if available
+                if 'page_num' in extracted_item and extracted_item['page_num'] is not None:
+                    # page_num is 1-indexed from DynamoDB, convert to 0-indexed
+                    page_num = int(extracted_item['page_num']) - 1
+                else:
+                    # Fallback to filename parsing
+                    import re
+                    match = re.search(r'drawing_(\d+)_', extracted_key)
+                    if match:
+                        page_num = int(match.group(1)) - 1
+                    else:
+                        page_num = i
             else:
                 extracted_key = str(extracted_item)
-            
-            # S3 키에서 페이지 정보 추출
-            # 예: results/job-id/drawing_020_00.png -> page 19
-            import re
-            # Try drawing_XXX pattern first
-            match = re.search(r'drawing_(\d+)_', extracted_key)
-            if match:
-                page_num = int(match.group(1)) - 1  # Convert to 0-indexed (drawing_020 -> page 19)
-            # Fallback to page pattern
-            elif re.search(r'page(\d+)_', extracted_key):
-                match = re.search(r'page(\d+)_', extracted_key)
-                page_num = int(match.group(1)) - 1  # 0-indexed
-            else:
-                page_num = i  # fallback
+                # Parse from filename
+                import re
+                match = re.search(r'drawing_(\d+)_', extracted_key)
+                if match:
+                    page_num = int(match.group(1)) - 1
+                else:
+                    page_num = i
             
             image_info_list.append({
                 'path': annotated_path,
@@ -273,18 +278,20 @@ def process_with_ocr(job_id, pdf_filename):
             # Prepare extracted images with page info for create_annotated_pdf
             extracted_with_page_info = []
             for img_info in extracted_images_s3:
-                # Extract page number from filename (e.g., drawing_020_00.png)
-                import re
-                # Try drawing_XXX pattern first
-                match = re.search(r'drawing_(\d+)_', img_info.get('filename', ''))
-                if match:
-                    page_num = int(match.group(1)) - 1  # Convert to 0-indexed (drawing_020 -> page 19)
-                # Fallback to page pattern
-                elif re.search(r'page(\d+)_', img_info.get('filename', '')):
-                    match = re.search(r'page(\d+)_', img_info.get('filename', ''))
-                    page_num = int(match.group(1)) - 1  # 0-indexed
+                # Use page_num from DynamoDB if available (it's 1-indexed from extraction)
+                if 'page_num' in img_info and img_info['page_num'] is not None:
+                    # DynamoDB stores page_num as 1-indexed (page 20 = page_num: 20)
+                    # Convert to 0-indexed for PDF processing
+                    page_num = int(img_info['page_num']) - 1
                 else:
-                    page_num = img_info.get('page_num', 0)
+                    # Fallback: Extract page number from filename (e.g., drawing_020_00.png)
+                    import re
+                    match = re.search(r'drawing_(\d+)_', img_info.get('filename', ''))
+                    if match:
+                        # drawing_020 means it's from page 20 (1-indexed), so convert to 19 (0-indexed)
+                        page_num = int(match.group(1)) - 1
+                    else:
+                        page_num = 0  # Default to first page
 
                 # Convert Decimal bbox values back to float for PDF generation
                 bbox_data = img_info.get('bbox')
