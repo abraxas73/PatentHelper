@@ -121,7 +121,7 @@ def extract_mappings(job_id, s3_key):
                         'filename': filename,
                         'width': img_data['pil_image'].width,
                         'height': img_data['pil_image'].height,
-                        'page_num': img_data['page'],
+                        'page_num': img_data.get('page_num', img_data['page'] + 1),  # Use page_num (1-indexed) if available
                         'bbox': img_data.get('bbox')  # Include bbox information
                     })
             
