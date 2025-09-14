@@ -208,10 +208,15 @@ def process_with_ocr(job_id, pdf_filename):
                 extracted_key = str(extracted_item)
             
             # S3 키에서 페이지 정보 추출
-            # 예: results/job-id/page1_img1.png -> page1
+            # 예: results/job-id/drawing_020_00.png -> page 19
             import re
-            match = re.search(r'page(\d+)_', extracted_key)
+            # Try drawing_XXX pattern first
+            match = re.search(r'drawing_(\d+)_', extracted_key)
             if match:
+                page_num = int(match.group(1)) - 1  # Convert to 0-indexed (drawing_020 -> page 19)
+            # Fallback to page pattern
+            elif re.search(r'page(\d+)_', extracted_key):
+                match = re.search(r'page(\d+)_', extracted_key)
                 page_num = int(match.group(1)) - 1  # 0-indexed
             else:
                 page_num = i  # fallback
@@ -268,10 +273,15 @@ def process_with_ocr(job_id, pdf_filename):
             # Prepare extracted images with page info for create_annotated_pdf
             extracted_with_page_info = []
             for img_info in extracted_images_s3:
-                # Extract page number from filename (e.g., page1_img1.png)
+                # Extract page number from filename (e.g., drawing_020_00.png)
                 import re
-                match = re.search(r'page(\d+)_', img_info.get('filename', ''))
+                # Try drawing_XXX pattern first
+                match = re.search(r'drawing_(\d+)_', img_info.get('filename', ''))
                 if match:
+                    page_num = int(match.group(1)) - 1  # Convert to 0-indexed (drawing_020 -> page 19)
+                # Fallback to page pattern
+                elif re.search(r'page(\d+)_', img_info.get('filename', '')):
+                    match = re.search(r'page(\d+)_', img_info.get('filename', ''))
                     page_num = int(match.group(1)) - 1  # 0-indexed
                 else:
                     page_num = img_info.get('page_num', 0)
