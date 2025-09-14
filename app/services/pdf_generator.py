@@ -158,26 +158,28 @@ class PDFGenerator:
                 # Use original crop position and size
                 original_width = bbox['x1'] - bbox['x0']
                 original_height = bbox['y1'] - bbox['y0']
-                
-                # Keep the original height, adjust width proportionally
-                scale = original_height / img_height
+
+                # Scale image to fit within the original bbox area
+                # Keep aspect ratio but ensure it fits within the bbox
+                width_scale = original_width / img_width
+                height_scale = original_height / img_height
+                scale = min(width_scale, height_scale)  # Use the smaller scale to ensure it fits
+
                 new_width = img_width * scale
-                new_height = original_height
-                
-                # Position at original coordinates
-                # PDF coordinates are bottom-up, so we need to convert
-                x_offset = bbox['x0']
+                new_height = img_height * scale
+
+                # Center the image within the bbox area
+                x_offset = bbox['x0'] + (original_width - new_width) / 2
                 # Calculate y position (PDF origin is bottom-left)
-                y_offset = page_height - bbox['y1']  # Convert from top-down to bottom-up
-                
-                # If the new width exceeds the original, center it
-                if new_width > original_width:
-                    x_offset = bbox['x0'] - (new_width - original_width) / 2
-                    # Make sure it doesn't go off the page
-                    if x_offset < 0:
-                        x_offset = 0
-                    elif x_offset + new_width > page_width:
-                        x_offset = page_width - new_width
+                y_offset = page_height - bbox['y1'] + (original_height - new_height) / 2
+
+                # Make sure image stays within page bounds
+                if x_offset < 0:
+                    x_offset = 0
+                elif x_offset + new_width > page_width:
+                    x_offset = page_width - new_width
+                if y_offset < 0:
+                    y_offset = 0
             else:
                 # Fallback: scale to fit page
                 width_ratio = page_width / img_width
