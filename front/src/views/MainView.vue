@@ -1,11 +1,14 @@
 <template>
   <div class="container">
     <!-- Image Modal -->
-    <ImageModal 
+    <ImageModal
       v-if="selectedImage"
       :isOpen="modalOpen"
       :image="selectedImage"
+      :imageIndex="selectedImageIndex"
+      :isAnnotated="selectedImageIsAnnotated"
       @close="closeModal"
+      @save-edited="handleEditedImage"
     />
     <!-- Header -->
     <div class="header">
@@ -170,10 +173,10 @@
         <div v-if="selectedResultTab === 'annotated' && annotatedImages.length > 0" class="image-grid">
           <div v-for="(image, index) in annotatedImages" :key="'annotated-' + index" class="image-card">
             <div class="image-wrapper">
-              <img 
-                :src="image.url" 
+              <img
+                :src="image.url"
                 :alt="`Annotated ${index + 1}`"
-                @click="openModal(image)"
+                @click="openModal(image, index, true)"
                 style="cursor: pointer;"
               />
             </div>
@@ -311,8 +314,17 @@
         <h2 class="results-title">추출된 도면</h2>
         <div class="results-count">총 {{ images.length }}개</div>
         <div class="pdf-download-buttons" v-if="annotatedPdfUrl">
-          <button 
-            @click="downloadPdf()" 
+          <button
+            v-if="hasEditedImages()"
+            @click="regeneratePdf()"
+            class="btn btn-regenerate"
+            :disabled="isRegeneratingPdf"
+          >
+            <span v-if="isRegeneratingPdf" class="loading"></span>
+            <span v-else>🔄 PDF 재생성 (편집 이미지 포함)</span>
+          </button>
+          <button
+            @click="downloadPdf()"
             class="btn btn-pdf"
           >
             📄 어노테이션된 PDF 다운로드
@@ -354,10 +366,10 @@
             class="image-card"
           >
             <div class="image-wrapper">
-              <img 
-                :src="image.url" 
+              <img
+                :src="image.url"
                 :alt="`Annotated ${index + 1}`"
-                @click="openModal(image)"
+                @click="openModal(image, index, true)"
                 style="cursor: pointer;"
               />
             </div>
@@ -472,11 +484,16 @@ export default {
     const images = ref([])
     const annotatedImages = ref([])
     const annotatedPdfUrl = ref(null)
+    const regeneratedPdfUrl = ref(null)
+    const isRegeneratingPdf = ref(false)
     const errorMessage = ref('')
     const successMessage = ref('')
     const numberMappings = ref({})
     const modalOpen = ref(false)
     const selectedImage = ref(null)  // null is ok, v-if handles it
+    const selectedImageIndex = ref(0)
+    const selectedImageIsAnnotated = ref(false)
+    const editedImages = ref({})  // Store edited images by index
     const processingTime = ref(0)
     const processingTimer = ref(null)
     const progressMessage = ref('')
@@ -836,14 +853,128 @@ export default {
       }
     }
 
-    const openModal = (image) => {
+    const openModal = (image, index = 0, isAnnotated = false) => {
+      console.log('Opening modal with image:', image)
+      console.log('Modal parameters:', { index, isAnnotated })
       selectedImage.value = image
+      selectedImageIndex.value = index
+      selectedImageIsAnnotated.value = isAnnotated
       modalOpen.value = true
     }
 
     const closeModal = () => {
       modalOpen.value = false
       selectedImage.value = null
+      selectedImageIndex.value = 0
+      selectedImageIsAnnotated.value = false
+    }
+
+    const handleEditedImage = async (data) => {
+      console.log('MainView: handleEditedImage called with data:', data)
+
+      // Store edited image data
+      const { imageIndex, editedData } = data
+      if (!editedData) {
+        console.error('MainView: No editedData received')
+        return
+      }
+
+      console.log('MainView: Storing edited image at index:', imageIndex)
+      editedImages.value[imageIndex] = editedData
+
+      // Update the annotated image if exists
+      if (annotatedImages.value[imageIndex]) {
+        // Use Vue's reactivity system to ensure updates are detected
+        const updatedImage = { ...annotatedImages.value[imageIndex] }
+        updatedImage.editedUrl = editedData
+        updatedImage.url = editedData
+        annotatedImages.value[imageIndex] = updatedImage
+
+        // Force reactivity update
+        annotatedImages.value = [...annotatedImages.value]
+      }
+
+      // Also update the selected image in modal if it's the same image
+      if (selectedImage.value && selectedImageIndex.value === imageIndex) {
+        selectedImage.value = { ...selectedImage.value, url: editedData }
+      }
+
+      // Save edited image to server
+      try {
+        // Get the filename from various sources
+        let pdfFilename = selectedFile.value?.name || uploadedFile.value?.name
+
+        // If not found, try to get from annotated images data
+        if (!pdfFilename && annotatedImages.value.length > 0) {
+          // Extract filename from image URL or key
+          const firstImage = annotatedImages.value[0]
+
+          // Try different sources for the filename
+          let imageIdentifier = firstImage.filename || firstImage.key || ''
+
+          // If we have a URL, extract the filename from it
+          if (!imageIdentifier && firstImage.url) {
+            const urlParts = firstImage.url.split('/')
+            imageIdentifier = urlParts[urlParts.length - 1]
+          }
+
+          console.log('Image identifier:', imageIdentifier)
+
+          // Extract base filename without page number and extension
+          const match = imageIdentifier.match(/^(.+?)_page\d+/)
+          if (match) {
+            pdfFilename = match[1] + '.pdf'
+          }
+        }
+
+        let response
+        if (config.isLocal) {
+          // Local environment: use existing endpoint
+          const requestData = {
+            imageIndex,
+            editedData,
+            pdfFilename: pdfFilename || 'unknown.pdf'
+          }
+          console.log('Sending data to local server:', {
+            imageIndex,
+            editedDataLength: editedData?.length,
+            pdfFilename: requestData.pdfFilename
+          })
+          response = await axios.post('/api/v1/save-edited-image', requestData)
+        } else {
+          // AWS environment: use Lambda endpoint
+          const sessionId = getSessionId()
+          const requestData = {
+            jobId: currentJobId.value,
+            imageIndex,
+            editedData,
+            sessionId
+          }
+          console.log('Sending data to AWS:', {
+            jobId: currentJobId.value,
+            imageIndex,
+            editedDataLength: editedData?.length,
+            sessionId
+          })
+          response = await axios.post(`${config.API_URL}/save-edited-image`, requestData)
+        }
+
+        if (response.data.message) {
+          successMessage.value = '이미지가 성공적으로 편집되었습니다.'
+          setTimeout(() => successMessage.value = '', 3000)
+        }
+      } catch (error) {
+        console.error('Failed to save edited image:', error)
+        if (error.response) {
+          console.error('Error response:', error.response.data)
+          console.error('Error status:', error.response.status)
+          if (error.response.data.detail) {
+            console.error('Error detail:', JSON.stringify(error.response.data.detail, null, 2))
+          }
+        }
+        errorMessage.value = '편집된 이미지 저장에 실패했습니다.'
+        setTimeout(() => errorMessage.value = '', 3000)
+      }
     }
 
     const extractMappings = async () => {
@@ -1454,6 +1585,9 @@ export default {
       jobProgress.value = 0
       modalOpen.value = false
       selectedImage.value = null
+      selectedImageIndex.value = 0
+      selectedImageIsAnnotated.value = false
+      editedImages.value = {}
       showHistory.value = false
       isGeneratingPDF.value = false
       
@@ -1485,6 +1619,151 @@ export default {
           mappingSection.scrollIntoView({ behavior: 'smooth' })
         }
       })
+    }
+
+    const getSessionId = () => {
+      // Get or create session ID for AWS environment
+      let sessionId = localStorage.getItem('editSessionId')
+      if (!sessionId) {
+        sessionId = 'session-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9)
+        localStorage.setItem('editSessionId', sessionId)
+      }
+      return sessionId
+    }
+
+    const hasEditedImages = () => {
+      return Object.keys(editedImages.value).length > 0
+    }
+
+    const regeneratePdfForce = async () => {
+      // Force regenerate PDF (AWS only)
+      if (config.isLocal) return
+
+      try {
+        const sessionId = getSessionId()
+
+        const response = await axios.post(`${config.API_URL}/regenerate-pdf`, {
+          jobId: currentJobId.value,
+          editedImages: editedImages.value,
+          sessionId,
+          forceRegenerate: true
+        })
+
+        if (response.data.action === 'regeneration_started') {
+          successMessage.value = 'PDF 재생성이 시작되었습니다. 완료되면 작업 이력에서 다운로드할 수 있습니다.'
+          currentJobId.value = response.data.regenerationJobId
+          // monitorJobProgress 함수가 있다면 호출
+          if (typeof monitorJobProgress === 'function') {
+            monitorJobProgress(response.data.regenerationJobId)
+          }
+        }
+      } catch (error) {
+        console.error('Failed to force regenerate PDF:', error)
+        errorMessage.value = 'PDF 재생성에 실패했습니다.'
+      }
+    }
+
+    const regeneratePdf = async () => {
+      isRegeneratingPdf.value = true
+      errorMessage.value = ''
+
+      try {
+        // Get PDF filename
+        let pdfFilename = selectedFile.value?.name || uploadedFile.value?.name
+
+        if (!pdfFilename && annotatedImages.value.length > 0) {
+          const firstImage = annotatedImages.value[0]
+          let imageIdentifier = firstImage.filename || firstImage.key || ''
+          if (!imageIdentifier && firstImage.url) {
+            const urlParts = firstImage.url.split('/')
+            imageIdentifier = urlParts[urlParts.length - 1]
+          }
+          const match = imageIdentifier.match(/^(.+?)_page\d+/)
+          if (match) {
+            pdfFilename = match[1] + '.pdf'
+          }
+        }
+
+        console.log('Regenerating PDF with edited images...')
+
+        if (config.isLocal) {
+          // Local environment: use existing endpoint
+          const response = await axios.post(`${config.API_URL}/regenerate-pdf`, {
+            pdf_filename: pdfFilename || 'unknown.pdf',
+            edited_images: editedImages.value,
+            use_edited: true
+          })
+
+          if (response.data.filename) {
+            regeneratedPdfUrl.value = `${config.API_URL}/download-pdf/${response.data.filename}`
+            successMessage.value = 'PDF가 편집된 이미지로 재생성되었습니다!'
+
+            // Automatically download the regenerated PDF
+            const downloadResponse = await fetch(regeneratedPdfUrl.value)
+            const blob = await downloadResponse.blob()
+            const url = window.URL.createObjectURL(blob)
+
+            const link = document.createElement('a')
+            link.href = url
+            link.download = response.data.filename
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+
+            setTimeout(() => window.URL.revokeObjectURL(url), 100)
+          }
+        } else {
+          // AWS environment: use Lambda endpoint with session management
+          const sessionId = getSessionId()
+
+          const response = await axios.post(`${config.API_URL}/regenerate-pdf`, {
+            jobId: currentJobId.value,
+            editedImages: editedImages.value,
+            sessionId,
+            forceRegenerate: false
+          })
+
+          if (response.data.action === 'existing_pdf_found') {
+            // Found existing regenerated PDF for this session
+            const shouldDownload = confirm(
+              `이미 이 세션에서 편집된 PDF가 있습니다 (편집 수: ${response.data.editCount}개).\n기존 PDF를 다운로드하시겠습니까?\n\n취소하면 새로 재생성합니다.`
+            )
+
+            if (shouldDownload) {
+              // Download existing PDF
+              const link = document.createElement('a')
+              link.href = response.data.pdfUrl
+              link.download = response.data.filename
+              link.target = '_blank'
+              document.body.appendChild(link)
+              link.click()
+              document.body.removeChild(link)
+
+              successMessage.value = '기존 편집된 PDF를 다운로드했습니다.'
+            } else {
+              // Force regenerate new PDF
+              await regeneratePdfForce()
+              return
+            }
+          } else if (response.data.action === 'regeneration_started') {
+            // New regeneration started
+            successMessage.value = 'PDF 재생성이 시작되었습니다. 완료되면 작업 이력에서 다운로드할 수 있습니다.'
+
+            // Start monitoring the regeneration job
+            currentJobId.value = response.data.regenerationJobId
+            // monitorJobProgress 함수가 있다면 호출
+            if (typeof monitorJobProgress === 'function') {
+              monitorJobProgress(response.data.regenerationJobId)
+            }
+          }
+        }
+
+      } catch (error) {
+        console.error('Failed to regenerate PDF:', error)
+        errorMessage.value = 'PDF 재생성에 실패했습니다.'
+      } finally {
+        isRegeneratingPdf.value = false
+      }
     }
 
     const downloadPdf = async () => {
@@ -1701,6 +1980,9 @@ export default {
       numberMappings,
       modalOpen,
       selectedImage,
+      selectedImageIndex,
+      selectedImageIsAnnotated,
+      editedImages,
       processingTime,
       progressMessage,
       progress,
@@ -1728,6 +2010,7 @@ export default {
       removeMapping,
       openModal,
       closeModal,
+      handleEditedImage,
       generatePDF,
       isGeneratingPDF,
       getImageUrl,
@@ -1744,7 +2027,11 @@ export default {
       annotatedPdfUrl,
       savedMappings,
       isReworkMode,
-      selectedResultTab
+      selectedResultTab,
+      hasEditedImages,
+      regeneratePdf,
+      isRegeneratingPdf,
+      regeneratedPdfUrl
     }
   }
 }
@@ -1776,6 +2063,30 @@ export default {
 .btn-pdf:disabled {
   background: #cccccc;
   cursor: not-allowed;
+}
+
+.btn-regenerate {
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  white-space: nowrap;
+  transition: all 0.3s;
+  margin-right: 10px;
+}
+
+.btn-regenerate:hover:not(:disabled) {
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  transform: translateY(-1px);
+}
+
+.btn-regenerate:disabled {
+  background: #cccccc;
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .job-status {

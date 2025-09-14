@@ -1,10 +1,13 @@
 <template>
   <div class="job-result-container">
     <!-- Image Modal -->
-    <ImageModal 
+    <ImageModal
       :isOpen="modalOpen"
       :image="selectedImage"
+      :imageIndex="selectedImageIndex"
+      :isAnnotated="selectedImageIsAnnotated"
       @close="closeModal"
+      @save-edited="handleEditedImage"
     />
     
     <div class="header">
@@ -92,17 +95,28 @@
         <div v-if="jobData.annotatedImages && jobData.annotatedImages.length > 0" class="annotated-section">
           <div class="section-header">
             <h3>어노테이션 도면</h3>
-            <button v-if="jobData.annotatedPdf" @click="downloadPdf" class="btn-pdf-download">
-              📄 PDF 다운로드
-            </button>
+            <div class="pdf-buttons">
+              <button
+                v-if="hasEditedImages()"
+                @click="regeneratePdf()"
+                class="btn-regenerate"
+                :disabled="isRegeneratingPdf"
+              >
+                <span v-if="isRegeneratingPdf" class="loading"></span>
+                <span v-else>🔄 PDF 재생성</span>
+              </button>
+              <button v-if="jobData.annotatedPdf" @click="downloadPdf" class="btn-pdf-download">
+                📄 PDF 다운로드
+              </button>
+            </div>
           </div>
           <div class="image-grid">
             <div v-for="(image, index) in jobData.annotatedImages" :key="'annotated-' + index" class="image-card">
               <div class="image-wrapper">
-                <img 
-                  :src="getImageUrl(image)" 
-                  :alt="`어노테이션 ${index + 1}`" 
-                  @click="openModal(image)"
+                <img
+                  :src="getImageUrl(image)"
+                  :alt="`어노테이션 ${index + 1}`"
+                  @click="openModal(image, index, true)"
                   style="cursor: pointer;"
                 />
               </div>
@@ -150,6 +164,10 @@ const loading = ref(true)
 const error = ref(null)
 const modalOpen = ref(false)
 const selectedImage = ref(null)
+const selectedImageIndex = ref(0)
+const selectedImageIsAnnotated = ref(false)
+const editedImages = ref({})
+const isRegeneratingPdf = ref(false)
 const pollingInterval = ref(null)
 
 const getStatusClass = (status) => {
@@ -218,7 +236,7 @@ const getImageName = (image) => {
   return image.split('/').pop()
 }
 
-const openModal = (image) => {
+const openModal = (image, index = 0, isAnnotated = false) => {
   console.log('Opening modal with image:', image)
   // Convert job result image format to ImageModal compatible format
   const imageObj = {
@@ -229,6 +247,8 @@ const openModal = (image) => {
     figure_number: getImageName(image).replace('_annotated', '').replace('.png', '')
   }
   selectedImage.value = imageObj
+  selectedImageIndex.value = index
+  selectedImageIsAnnotated.value = isAnnotated
   modalOpen.value = true
 }
 
@@ -263,26 +283,182 @@ const goBack = () => {
   router.push('/')
 }
 
+const handleEditedImage = async (data) => {
+  console.log('JobResultView: handleEditedImage called with data:', data)
+
+  const { imageIndex, editedData } = data
+
+  // Convert index to string for consistent storage
+  const indexStr = String(imageIndex)
+
+  // Store edited image data with string key
+  editedImages.value[indexStr] = editedData
+  console.log('JobResultView: Stored edited image at index:', indexStr)
+
+  // Update the displayed annotated image immediately with the base64 data
+  if (jobData.value && jobData.value.annotatedImages && jobData.value.annotatedImages[imageIndex]) {
+    // Create a completely new object for Vue reactivity
+    const updatedImages = jobData.value.annotatedImages.map((img, idx) => {
+      if (idx === imageIndex) {
+        return {
+          ...img,
+          url: editedData,  // Use the base64 data directly for immediate display
+          isEdited: true,
+          originalUrl: img.originalUrl || img.url  // Keep original URL
+        }
+      }
+      return img
+    })
+
+    // Replace the entire array to trigger Vue reactivity
+    jobData.value.annotatedImages = updatedImages
+
+    // Force update
+    jobData.value = { ...jobData.value }
+  }
+
+  // Save edited image to server
+  try {
+    let response
+
+    if (config.isLocal) {
+      // Local environment: Different endpoint/format if needed
+      console.log('Local environment: Saving edited image')
+      // For local, you might want to save differently or skip server save
+      // For now, we'll skip the save in local environment
+      console.log('Local environment: Skip server save, only update UI')
+    } else {
+      // AWS environment: Save to S3 via Lambda
+      response = await axios.post(`${API_BASE_URL}/save-edited-image`, {
+        jobId: jobId.value,
+        imageIndex,
+        editedData,
+        sessionId: getSessionId()
+      })
+
+      if (response.data.message) {
+        console.log('Image saved successfully to S3')
+
+        // After successful save, reload job data to get server state
+        // This ensures persistence across refreshes
+        setTimeout(() => {
+          loadJobResult()
+        }, 500)
+      }
+    }
+  } catch (error) {
+    console.error('Failed to save edited image:', error)
+    if (error.response) {
+      console.error('Error response:', error.response.data)
+    }
+  }
+}
+
+const hasEditedImages = () => {
+  return Object.keys(editedImages.value).length > 0
+}
+
+const getSessionId = () => {
+  let sessionId = sessionStorage.getItem('editSessionId')
+  if (!sessionId) {
+    sessionId = 'session-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9)
+    sessionStorage.setItem('editSessionId', sessionId)
+  }
+  return sessionId
+}
+
+const regeneratePdf = async () => {
+  isRegeneratingPdf.value = true
+
+  try {
+    // AWS environment only - regenerate PDF is not available in local
+    if (config.isLocal) {
+      alert('PDF 재생성은 AWS 환경에서만 사용 가능합니다.')
+      isRegeneratingPdf.value = false
+      return
+    }
+
+    const sessionId = getSessionId()
+
+    const response = await axios.post(`${API_BASE_URL}/regenerate-pdf`, {
+      jobId: jobId.value,
+      editedImages: editedImages.value,
+      sessionId,
+      forceRegenerate: false
+    })
+
+    if (response.data.action === 'existing_pdf_found') {
+      // Found existing regenerated PDF for this session
+      const shouldDownload = confirm(
+        `이미 이 세션에서 편집된 PDF가 있습니다 (편집 수: ${response.data.editCount}개).\n기존 PDF를 다운로드하시겠습니까?\n\n취소하면 새로 재생성합니다.`
+      )
+
+      if (shouldDownload) {
+        // Download existing PDF
+        const link = document.createElement('a')
+        link.href = response.data.pdfUrl
+        link.download = response.data.filename
+        link.target = '_blank'
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+      } else {
+        // Force regenerate new PDF
+        await regeneratePdfForce()
+      }
+    } else if (response.data.action === 'regeneration_started') {
+      // New regeneration started
+      alert('PDF 재생성이 시작되었습니다. 완료되면 작업 이력에서 다운로드할 수 있습니다.')
+    }
+
+  } catch (error) {
+    console.error('Failed to regenerate PDF:', error)
+    alert('PDF 재생성에 실패했습니다.')
+  } finally {
+    isRegeneratingPdf.value = false
+  }
+}
+
+const regeneratePdfForce = async () => {
+  try {
+    const sessionId = getSessionId()
+
+    const response = await axios.post(`${API_BASE_URL}/regenerate-pdf`, {
+      jobId: jobId.value,
+      editedImages: editedImages.value,
+      sessionId,
+      forceRegenerate: true
+    })
+
+    if (response.data.action === 'regeneration_started') {
+      alert('PDF 재생성이 시작되었습니다. 완료되면 작업 이력에서 다운로드할 수 있습니다.')
+    }
+  } catch (error) {
+    console.error('Failed to force regenerate PDF:', error)
+    alert('PDF 재생성에 실패했습니다.')
+  }
+}
+
 const downloadPdf = async () => {
   if (!jobData.value || !jobData.value.annotatedPdf) {
     console.error('PDF URL not found')
     return
   }
-  
+
   try {
     // Create CloudFront URL for direct S3 access
     const cloudFrontUrl = 'https://d38f9rplbkj0f2.cloudfront.net'
     const pdfUrl = `${cloudFrontUrl}/${jobData.value.annotatedPdf}`
-    
+
     // Direct download from CloudFront/S3
     const link = document.createElement('a')
     link.href = pdfUrl
-    
+
     // Extract filename from URL or use default
     const filename = jobData.value.annotatedPdf.split('/').pop() || 'annotated.pdf'
     link.download = filename
     link.target = '_blank'
-    
+
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -295,7 +471,7 @@ const downloadPdf = async () => {
 const loadJobResult = async () => {
   loading.value = true
   error.value = null
-  
+
   try {
     // For local development, we don't have job results endpoint
     if (config.isLocal) {
@@ -303,14 +479,55 @@ const loadJobResult = async () => {
       loading.value = false
       return
     }
-    
+
     const response = await axios.get(`${API_BASE_URL}/result/${jobId.value}`)
     jobData.value = response.data
-    
+
     // Debug log for checking field names
     console.log('Job data fields:', Object.keys(jobData.value))
     console.log('Job data:', jobData.value)
-    
+
+    // Load edited images if available
+    if (jobData.value.editedImages && Object.keys(jobData.value.editedImages).length > 0) {
+      editedImages.value = jobData.value.editedImages
+      console.log('Loaded edited images from server:', editedImages.value)
+
+      // Update annotated images with edited versions
+      if (jobData.value.annotatedImages) {
+        jobData.value.annotatedImages = jobData.value.annotatedImages.map((image, index) => {
+          // Convert index to string to match editedImages object keys
+          const indexStr = String(index)
+          if (editedImages.value[indexStr]) {
+            const editedKey = editedImages.value[indexStr]
+            let editedUrl = editedKey
+
+            // AWS environment: Build CloudFront URL for edited image
+            if (!config.isLocal) {
+              // If it's just a key (not a full URL), prepend CloudFront domain
+              if (!editedKey.startsWith('http')) {
+                const cloudFrontUrl = 'https://d38f9rplbkj0f2.cloudfront.net'
+                editedUrl = `${cloudFrontUrl}/${editedKey}`
+              }
+            } else {
+              // Local environment: Use the edited data directly
+              editedUrl = editedKey
+            }
+
+            console.log(`Applying edited image for index ${indexStr}:`, editedUrl)
+
+            // Replace with edited version
+            return {
+              ...image,
+              url: editedUrl,
+              isEdited: true,
+              originalUrl: image.url
+            }
+          }
+          return image
+        })
+      }
+    }
+
     // 처리 중인 경우 폴링 시작
     if (jobData.value.status === 'PROCESSING' || jobData.value.status === 'PENDING') {
       startPolling()
@@ -591,6 +808,11 @@ onUnmounted(() => {
   margin-bottom: 20px;
 }
 
+.pdf-buttons {
+  display: flex;
+  gap: 10px;
+}
+
 .btn-pdf-download {
   padding: 10px 20px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -611,6 +833,40 @@ onUnmounted(() => {
 
 .btn-pdf-download:active {
   transform: translateY(0);
+}
+
+.btn-regenerate {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+}
+
+.btn-regenerate:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+}
+
+.btn-regenerate:disabled {
+  background: #cccccc;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.loading {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: white;
+  animation: spin 1s ease-in-out infinite;
 }
 
 .mappings-section {

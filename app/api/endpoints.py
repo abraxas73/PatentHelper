@@ -192,11 +192,18 @@ async def get_image(filename: str):
     image_path = settings.output_image_dir / filename
     if not image_path.exists():
         image_path = settings.output_annotated_dir / filename
-    
+
     if not image_path.exists():
         raise HTTPException(status_code=404, detail="Image not found")
-    
-    return FileResponse(image_path)
+
+    return FileResponse(
+        image_path,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*"
+        }
+    )
 
 
 @router.get("/list-images")
@@ -236,6 +243,115 @@ class ProcessWithMappingsRequest(BaseModel):
     mappings: Dict[str, str]  # Selected and edited mappings
 
 
+class SaveEditedImageRequest(BaseModel):
+    imageIndex: int
+    editedData: str
+    pdfFilename: str
+
+
+class RegeneratePDFRequest(BaseModel):
+    pdf_filename: str
+    edited_images: Dict[int, str]  # index -> base64 image data
+    use_edited: bool = True
+
+
+@router.post("/regenerate-pdf")
+async def regenerate_pdf(request: RegeneratePDFRequest):
+    """Regenerate PDF with edited images"""
+    try:
+        import base64
+        from PIL import Image
+        import io
+        from datetime import datetime
+
+        pdf_generator = PDFGenerator()
+        pdf_name = Path(request.pdf_filename).stem
+
+        # Load metadata
+        metadata_file = settings.upload_dir / f"{pdf_name}_metadata.json"
+        if not metadata_file.exists():
+            raise HTTPException(status_code=404, detail="Processing metadata not found.")
+
+        import json
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+
+        original_pdf_path = Path(metadata['pdf_path'])
+        if not original_pdf_path.exists():
+            raise HTTPException(status_code=404, detail="Original PDF not found")
+
+        # Create edited directory if needed
+        edited_dir = settings.output_annotated_dir / f"{pdf_name}_edited"
+        edited_dir.mkdir(exist_ok=True)
+
+        # Save edited images to temporary files
+        # Handle both string list and dict list formats
+        annotated_images = metadata['annotated_images']
+        updated_annotated_images = []
+
+        # Convert to consistent format (list of dicts)
+        for i, img in enumerate(annotated_images):
+            if isinstance(img, str):
+                updated_annotated_images.append({
+                    'file_path': img,
+                    'page_num': metadata['extracted_images'][i].get('page_num') if i < len(metadata['extracted_images']) else None
+                })
+            else:
+                updated_annotated_images.append(img.copy())
+
+        for index_str, edited_data in request.edited_images.items():
+            index = int(index_str)
+            if index < len(updated_annotated_images):
+                # Decode and save edited image
+                if edited_data.startswith('data:image'):
+                    edited_data = edited_data.split(',')[1]
+
+                image_data = base64.b64decode(edited_data)
+                image = Image.open(io.BytesIO(image_data))
+
+                # Save with timestamp to create unique filename
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                edited_path = edited_dir / f"regenerated_{timestamp}_{index}.png"
+                image.save(edited_path, 'PNG')
+
+                # Update the annotated images metadata
+                updated_annotated_images[index]['file_path'] = str(edited_path)
+                logger.info(f"Using edited image for index {index}: {edited_path}")
+
+        # Generate new PDF with timestamp in filename
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_filename = f"{pdf_name}_edited_{timestamp}.pdf"
+
+        # Create PDF with updated images
+        output_path = pdf_generator.create_annotated_pdf(
+            original_pdf_path,
+            metadata['extracted_images'],
+            updated_annotated_images
+        )
+
+        # Rename to include timestamp
+        final_path = output_path.parent / output_filename
+        output_path.rename(final_path)
+
+        if not final_path.exists():
+            raise HTTPException(status_code=500, detail="Failed to regenerate PDF")
+
+        logger.info(f"Regenerated PDF saved as: {final_path}")
+
+        return {
+            "filename": final_path.name,
+            "path": str(final_path),
+            "size": final_path.stat().st_size,
+            "message": "PDF regenerated successfully with edited images"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to regenerate PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/generate-pdf")
 async def generate_pdf(request: GeneratePDFRequest):
     """Generate PDF with annotated images"""
@@ -255,7 +371,17 @@ async def generate_pdf(request: GeneratePDFRequest):
         original_pdf_path = Path(metadata['pdf_path'])
         if not original_pdf_path.exists():
             raise HTTPException(status_code=404, detail="Original PDF not found")
-        
+
+        # Check for edited images and update annotated_images if they exist
+        edited_dir = settings.output_annotated_dir / f"{pdf_name}_edited"
+        if edited_dir.exists():
+            for idx, img_info in enumerate(metadata['annotated_images']):
+                edited_path = edited_dir / f"edited_{idx}.png"
+                if edited_path.exists():
+                    # Replace annotated image path with edited image path
+                    img_info['file_path'] = str(edited_path)
+                    logger.info(f"Using edited image for index {idx}: {edited_path}")
+
         # Generate PDF based on type
         if request.pdf_type == "annotated":
             output_path = pdf_generator.create_annotated_pdf(
@@ -460,20 +586,63 @@ async def extract_mappings(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/save-edited-image")
+async def save_edited_image(request: SaveEditedImageRequest):
+    """Save edited image data"""
+    try:
+        import base64
+        from PIL import Image
+        import io
+
+        image_index = request.imageIndex
+        edited_data = request.editedData
+        pdf_filename = request.pdfFilename
+
+        if not edited_data or not pdf_filename:
+            raise HTTPException(status_code=400, detail="Missing required data")
+
+        # Decode base64 image
+        if edited_data.startswith('data:image'):
+            edited_data = edited_data.split(',')[1]
+
+        image_data = base64.b64decode(edited_data)
+        image = Image.open(io.BytesIO(image_data))
+
+        # Save edited image
+        pdf_name = Path(pdf_filename).stem
+        edited_dir = settings.output_annotated_dir / f"{pdf_name}_edited"
+        edited_dir.mkdir(exist_ok=True)
+
+        edited_path = edited_dir / f"edited_{image_index}.png"
+        image.save(edited_path, 'PNG')
+
+        logger.info(f"Saved edited image: {edited_path}")
+
+        return {
+            "message": "Image saved successfully",
+            "path": str(edited_path),
+            "index": image_index
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to save edited image: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/process-with-mappings")
 async def process_with_mappings(request: ProcessWithMappingsRequest):
     """Process PDF with selected/edited mappings"""
-    
+
     pdf_name = Path(request.pdf_filename).stem
     metadata_file = settings.upload_dir / f"{pdf_name}_preview_metadata.json"
-    
+
     if not metadata_file.exists():
         raise HTTPException(status_code=404, detail="Preview metadata not found. Please extract mappings first.")
-    
+
     import json
     with open(metadata_file, 'r') as f:
         metadata = json.load(f)
-    
+
     try:
         # Initialize services
         image_extractor = ImageExtractor(
@@ -482,17 +651,17 @@ async def process_with_mappings(request: ProcessWithMappingsRequest):
             settings.ocr_gpu
         )
         image_annotator = ImageAnnotator(settings.output_annotated_dir)
-        
+
         # Use provided mappings
         selected_mappings = request.mappings
-        
+
         # NOW perform OCR to find numbered regions in each image
         logger.info("Starting OCR to find numbered regions in images...")
         numbered_regions_by_image = {}
-        
+
         for img_info in metadata['extracted_images']:
             logger.info(f"Processing image: {img_info['file_path']}")
-            
+
             # Store original dimensions and crop info in the image metadata
             # This will be used to restore proper positioning
             img_info['crop_info'] = {
@@ -501,37 +670,51 @@ async def process_with_mappings(request: ProcessWithMappingsRequest):
                 'crop_top': img_info.get('crop_top', 0),
                 'crop_bottom': img_info.get('crop_bottom', 0)
             }
-            
+
             regions = image_extractor.find_numbered_regions(img_info['file_path'])
             if regions:
                 # Log all detected numbers before filtering
                 detected_numbers = [r['number'] for r in regions]
                 logger.info(f"Detected numbers in {img_info['file_path']}: {detected_numbers}")
-                
+
                 # Only keep regions for numbers we have mappings for
                 filtered_regions = [r for r in regions if r['number'] in selected_mappings]
                 filtered_numbers = [r['number'] for r in filtered_regions]
                 logger.info(f"Filtered numbers (with mappings): {filtered_numbers}")
-                
+
                 if filtered_regions:
                     numbered_regions_by_image[img_info['file_path']] = filtered_regions
                     logger.info(f"Found {len(filtered_regions)} mapped regions in {img_info['file_path']}")
-        
+
         # Annotate images with selected mappings
         logger.info("Annotating images with selected labels...")
         logger.info(f"Selected mappings: {selected_mappings}")
         logger.info(f"Number of extracted images: {len(metadata['extracted_images'])}")
         logger.info(f"Number of images with regions: {len(numbered_regions_by_image)}")
-        
+
         annotated_paths = image_annotator.batch_annotate(
             metadata['extracted_images'],
             selected_mappings,
             numbered_regions_by_image
         )
-        
+
+        # Create annotated images info with page numbers
+        annotated_images_info = []
+        for i, path in enumerate(annotated_paths):
+            # Extract page number from original image if available
+            page_num = None
+            if metadata['extracted_images'] and i < len(metadata['extracted_images']):
+                if 'page_num' in metadata['extracted_images'][i]:
+                    page_num = int(metadata['extracted_images'][i]['page_num'])
+
+            annotated_images_info.append({
+                'file_path': str(path),
+                'page_num': page_num
+            })
+
         # Store final metadata for PDF generation
         final_metadata_file = settings.upload_dir / f"{pdf_name}_metadata.json"
-        
+
         # NumpyEncoder should already be imported at the top, but define here for safety
         import numpy as np
         class NumpyEncoder(json.JSONEncoder):
@@ -545,21 +728,21 @@ async def process_with_mappings(request: ProcessWithMappingsRequest):
                 elif isinstance(obj, Path):
                     return str(obj)
                 return super().default(obj)
-        
+
         with open(final_metadata_file, 'w') as f:
             json.dump({
                 'pdf_path': metadata['pdf_path'],
                 'extracted_images': metadata['extracted_images'],
-                'annotated_images': [str(p) for p in annotated_paths],
+                'annotated_images': annotated_images_info,
                 'number_mappings': selected_mappings
             }, f, cls=NumpyEncoder)
-        
+
         return {
             'pdf_filename': request.pdf_filename,
             'annotated_images': [str(p) for p in annotated_paths],
             'applied_mappings': selected_mappings
         }
-        
+
     except Exception as e:
         logger.error(f"Processing with mappings failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -29,6 +29,8 @@ EXTRACT_MAPPINGS_FUNCTION="patent-helper-extract-mappings-${ENVIRONMENT}"
 PROCESS_MAPPINGS_FUNCTION="patent-helper-process-mappings-${ENVIRONMENT}"
 IMAGE_PROXY_FUNCTION="patent-helper-image-proxy-${ENVIRONMENT}"
 GET_UPLOAD_URL_FUNCTION="patent-helper-get-upload-url-${ENVIRONMENT}"
+SAVE_EDITED_IMAGE_FUNCTION="patent-helper-save-edited-image-${ENVIRONMENT}"
+REGENERATE_PDF_FUNCTION="patent-helper-regenerate-pdf-${ENVIRONMENT}"
 
 # Update Upload Lambda
 echo -e "${YELLOW}📦 Updating Upload Lambda...${NC}"
@@ -197,6 +199,26 @@ aws lambda update-function-code \
     --function-name $GET_UPLOAD_URL_FUNCTION \
     --zip-file fileb://../get-upload-url.zip \
     --region $REGION > /dev/null 2>&1 || echo "Get Upload URL function not deployed yet - will be created with SAM deploy"
+cd ../..
+
+# Update Save Edited Image Lambda
+echo -e "${YELLOW}📦 Updating Save Edited Image Lambda...${NC}"
+cd lambda/save-edited-image
+zip -r ../save-edited-image.zip . -x "*.pyc" "__pycache__/*"
+aws lambda update-function-code \
+    --function-name $SAVE_EDITED_IMAGE_FUNCTION \
+    --zip-file fileb://../save-edited-image.zip \
+    --region $REGION > /dev/null 2>&1 || echo "Save Edited Image function not deployed yet - will be created with SAM deploy"
+cd ../..
+
+# Update Regenerate PDF Lambda
+echo -e "${YELLOW}📦 Updating Regenerate PDF Lambda...${NC}"
+cd lambda/regenerate-pdf
+zip -r ../regenerate-pdf.zip . -x "*.pyc" "__pycache__/*"
+aws lambda update-function-code \
+    --function-name $REGENERATE_PDF_FUNCTION \
+    --zip-file fileb://../regenerate-pdf.zip \
+    --region $REGION > /dev/null 2>&1 || echo "Regenerate PDF function not deployed yet - will be created with SAM deploy"
 cd ../..
 
 # Clean up zip files

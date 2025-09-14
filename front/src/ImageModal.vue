@@ -3,12 +3,12 @@
     <div class="modal-container" @click.stop>
       <!-- Close button -->
       <button class="modal-close" @click="close">✕</button>
-      
+
       <!-- Image display -->
       <div class="modal-image-wrapper">
         <img :src="imageUrl" :alt="image.filename" />
       </div>
-      
+
       <!-- Image info -->
       <div class="modal-info">
         <h3>{{ image.figure_number || (image.original_page !== undefined ? `페이지 ${image.original_page + 1}` : image.key || '이미지') }}</h3>
@@ -19,20 +19,20 @@
           </span>
         </p>
       </div>
-      
+
       <!-- Download section -->
       <div class="modal-actions">
         <div class="format-selector">
           <label>다운로드 형식:</label>
           <select v-model="selectedFormat" class="format-select">
-            <option value="jpg">JPG (이미지)</option>
             <option value="png">PNG (원본)</option>
-            <option value="svg">SVG (벡터)</option>
-            <option value="pdf">PDF (문서)</option>
           </select>
         </div>
-        
+
         <div class="action-buttons">
+          <button class="btn btn-edit" @click="openEditor" v-if="canEdit">
+            ✏️ 편집
+          </button>
           <button class="btn btn-download" @click="download" :disabled="isDownloading">
             <span v-if="isDownloading" class="loading"></span>
             <span v-else>📥 다운로드</span>
@@ -41,15 +41,29 @@
         </div>
       </div>
     </div>
+
+    <!-- Image Editor -->
+    <ImageEditor
+      v-if="isEditorOpen"
+      :isOpen="isEditorOpen"
+      :imageUrl="imageUrl"
+      :imageIndex="imageIndex"
+      @close="closeEditor"
+      @save="handleEditedImage"
+    />
   </div>
 </template>
 
 <script>
 import { ref, computed } from 'vue'
 import axios from 'axios'
+import ImageEditor from './components/ImageEditor.vue'
 
 export default {
   name: 'ImageModal',
+  components: {
+    ImageEditor
+  },
   props: {
     isOpen: {
       type: Boolean,
@@ -58,14 +72,49 @@ export default {
     image: {
       type: Object,
       required: true
+    },
+    imageIndex: {
+      type: Number,
+      default: 0
+    },
+    isAnnotated: {
+      type: Boolean,
+      default: false
     }
   },
-  emits: ['close'],
+  emits: ['close', 'save-edited'],
   setup(props, { emit }) {
     const selectedFormat = ref('png')
     const isDownloading = ref(false)
+    const isEditorOpen = ref(false)
+    const editedImageUrl = ref(null)
+
+    // Only allow editing for annotated images
+    const canEdit = computed(() => {
+      // Check if image is annotated by prop or by filename/URL containing 'annotated'
+      const isAnnotatedByProp = props.isAnnotated
+      const isAnnotatedByUrl = props.image?.url?.includes('annotated') ||
+                              props.image?.filename?.includes('annotated') ||
+                              props.image?.key?.includes('annotated')
+
+      const result = isAnnotatedByProp || isAnnotatedByUrl
+
+      console.log('ImageModal canEdit check:', {
+        isAnnotated: props.isAnnotated,
+        isAnnotatedByUrl,
+        imageType: props.image?.type,
+        imageSrc: props.image?.url,
+        finalResult: result
+      })
+      return result
+    })
     
     const imageUrl = computed(() => {
+      // If we have an edited image, show that
+      if (editedImageUrl.value) {
+        return editedImageUrl.value
+      }
+
       if (!props.image) return ''
       // If image has url property (from job results), use it directly
       if (props.image.url) {
@@ -79,7 +128,33 @@ export default {
     })
     
     const close = () => {
+      isEditorOpen.value = false
       emit('close')
+    }
+
+    const openEditor = () => {
+      isEditorOpen.value = true
+    }
+
+    const closeEditor = () => {
+      isEditorOpen.value = false
+    }
+
+    const handleEditedImage = (data) => {
+      console.log('ImageModal: handleEditedImage called with data:', data)
+
+      // Update local imageUrl to show the edited version
+      if (data.editedData) {
+        editedImageUrl.value = data.editedData
+        console.log('ImageModal: Updated local image preview')
+      }
+
+      // Emit the edited image data to parent component
+      emit('save-edited', data)
+      console.log('ImageModal: save-edited event emitted')
+
+      // Don't close the editor - let user continue editing or close manually
+      // Success feedback is shown in the editor itself
     }
     
     const handleOverlayClick = (e) => {
@@ -213,8 +288,13 @@ export default {
     return {
       selectedFormat,
       isDownloading,
+      isEditorOpen,
+      canEdit,
       imageUrl,
       close,
+      openEditor,
+      closeEditor,
+      handleEditedImage,
       handleOverlayClick,
       download
     }
@@ -407,6 +487,16 @@ export default {
 
 .btn-secondary:hover {
   background: #cbd5e1;
+}
+
+.btn-edit {
+  background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
+  color: white;
+}
+
+.btn-edit:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(245, 158, 11, 0.4);
 }
 
 .loading {
