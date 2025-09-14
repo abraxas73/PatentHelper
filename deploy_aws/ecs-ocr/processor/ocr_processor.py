@@ -286,11 +286,26 @@ def process_with_ocr(job_id, pdf_filename):
                 else:
                     page_num = img_info.get('page_num', 0)
 
+                # Convert Decimal bbox values back to float for PDF generation
+                bbox_data = img_info.get('bbox')
+                if bbox_data and isinstance(bbox_data, dict):
+                    bbox_float = {}
+                    for key, value in bbox_data.items():
+                        try:
+                            from decimal import Decimal
+                            if isinstance(value, Decimal):
+                                bbox_float[key] = float(value)
+                            else:
+                                bbox_float[key] = value
+                        except:
+                            bbox_float[key] = value
+                    bbox_data = bbox_float
+
                 extracted_with_page_info.append({
                     'file_path': img_info.get('file_path'),
                     'filename': img_info.get('filename'),
                     'original_page': page_num,
-                    'bbox': img_info.get('bbox')  # Include bbox if available
+                    'bbox': bbox_data  # Include converted bbox if available
                 })
 
             # Use create_annotated_pdf to merge with original PDF
