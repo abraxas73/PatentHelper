@@ -117,7 +117,7 @@ def lambda_handler(event, context):
         original_pdf_url = None
         if 'originalPdfS3Key' in item and item['originalPdfS3Key']:
             original_pdf_s3_key = item['originalPdfS3Key']
-            # Generate CloudFront URL for original PDF
+            # Generate CloudFront URL for original PDF (same as other assets)
             original_pdf_url = f"{CLOUDFRONT_DOMAIN}/{original_pdf_s3_key}"
             print(f"Original PDF URL: {original_pdf_url}")
 

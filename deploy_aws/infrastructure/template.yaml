@@ -11,6 +11,21 @@ Parameters:
       - prod
     Description: Environment name
 
+  # Optional: Use existing VPC resources (for production)
+  ExistingSubnetId:
+    Type: String
+    Default: subnet-0dfe964407fb14a0d
+    Description: Existing subnet ID for ECS tasks (leave empty to create new)
+
+  ExistingSecurityGroupId:
+    Type: String
+    Default: sg-026d9d7b1b1c79cf2
+    Description: Existing security group ID for ECS tasks (leave empty to create new)
+
+Conditions:
+  CreateVPCResources: !Equals [!Ref ExistingSubnetId, ""]
+  UseExistingResources: !Not [!Equals [!Ref ExistingSubnetId, ""]]
+
 Globals:
   Function:
     Timeout: 30
@@ -71,7 +86,10 @@ Resources:
             Effect: Allow
             Principal: "*"
             Action: s3:GetObject
-            Resource: !Sub ${DocumentBucket.Arn}/results/*
+            Resource:
+              - !Sub ${DocumentBucket.Arn}/results/*
+              - !Sub ${DocumentBucket.Arn}/edited/*
+              - !Sub ${DocumentBucket.Arn}/uploads/*
 
   FrontendBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -132,6 +150,19 @@ Resources:
               Cookies:
                 Forward: none
           - PathPattern: "edited/*"
+            TargetOriginId: DocumentsOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+            CachedMethods:
+              - GET
+              - HEAD
+            ForwardedValues:
+              QueryString: false
+              Cookies:
+                Forward: none
+          - PathPattern: "uploads/*"
             TargetOriginId: DocumentsOrigin
             ViewerProtocolPolicy: redirect-to-https
             AllowedMethods:
@@ -335,6 +366,7 @@ Resources:
       FunctionName: !Sub patent-helper-get-upload-url-${Environment}
       CodeUri: ../lambda/get-upload-url/
       Handler: handler.lambda_handler
+      MemorySize: 256
       Timeout: 30
       MemorySize: 256
       Environment:
@@ -360,8 +392,8 @@ Resources:
       FunctionName: !Sub patent-helper-extract-mappings-${Environment}
       CodeUri: ../lambda/extract-mappings/
       Handler: handler.lambda_handler
-      Timeout: 300
       MemorySize: 3008
+      Timeout: 300
       Environment:
         Variables:
           CLUSTER_NAME: !Ref ECSCluster
@@ -399,8 +431,8 @@ Resources:
       FunctionName: !Sub patent-helper-process-mappings-${Environment}
       CodeUri: ../lambda/process-mappings/
       Handler: handler.lambda_handler
-      Timeout: 900
       MemorySize: 10240
+      Timeout: 900
       Environment:
         Variables:
           CLUSTER_NAME: !Ref ECSCluster
@@ -438,8 +470,8 @@ Resources:
       FunctionName: !Sub patent-helper-save-edited-image-${Environment}
       CodeUri: ../lambda/save-edited-image/
       Handler: handler.lambda_handler
-      Timeout: 60
       MemorySize: 1024
+      Timeout: 60
       Events:
         ApiEvent:
           Type: Api
@@ -465,8 +497,8 @@ Resources:
       FunctionName: !Sub patent-helper-regenerate-pdf-${Environment}
       CodeUri: ../lambda/regenerate-pdf/
       Handler: handler.lambda_handler
-      Timeout: 300
       MemorySize: 3072
+      Timeout: 300
       Environment:
         Variables:
           CLUSTER_NAME: !Ref ECSCluster
@@ -639,6 +671,7 @@ Resources:
       FunctionName: !Sub patent-helper-ocr-trigger-${Environment}
       CodeUri: ../lambda/ocr-trigger/
       Handler: handler.lambda_handler
+      MemorySize: 512
       Timeout: 60
       Events:
         SQSEvent:

@@ -411,11 +411,25 @@ def regenerate_pdf_with_edited_images(job_id, original_job_id, pdf_filename, out
             extracted_metadata = original_job.get('extractedImagesMetadata', [])
 
             for idx, img_key in enumerate(extracted_images):
-                # Get bbox from metadata if available
+                # Get bbox and original_page from metadata if available
                 bbox = None
+                original_page = idx  # Default to sequential index
+
                 if idx < len(extracted_metadata):
                     metadata = extracted_metadata[idx]
                     if isinstance(metadata, dict):
+                        # Get the actual original page number from metadata
+                        if 'original_page' in metadata:
+                            try:
+                                from decimal import Decimal
+                                if isinstance(metadata['original_page'], Decimal):
+                                    original_page = int(metadata['original_page'])
+                                else:
+                                    original_page = int(metadata['original_page'])
+                            except:
+                                original_page = idx
+
+                        # Get bbox data
                         bbox_data = metadata.get('bbox')
                         if bbox_data:
                             # Convert Decimal to float if needed
@@ -432,7 +446,7 @@ def regenerate_pdf_with_edited_images(job_id, original_job_id, pdf_filename, out
 
                 extracted_info.append({
                     'file_path': img_key,
-                    'original_page': idx,  # Page index
+                    'original_page': original_page,  # Use actual page from metadata
                     'bbox': bbox
                 })
 
@@ -442,20 +456,34 @@ def regenerate_pdf_with_edited_images(job_id, original_job_id, pdf_filename, out
                 idx_str = str(idx)
                 local_path = os.path.join(temp_dir, f"annotated_{idx}.png")
 
+                # Get the actual original page number from extracted_metadata
+                original_page = idx  # Default to sequential index
+                if idx < len(extracted_metadata):
+                    metadata = extracted_metadata[idx]
+                    if isinstance(metadata, dict) and 'original_page' in metadata:
+                        try:
+                            from decimal import Decimal
+                            if isinstance(metadata['original_page'], Decimal):
+                                original_page = int(metadata['original_page'])
+                            else:
+                                original_page = int(metadata['original_page'])
+                        except:
+                            original_page = idx
+
                 if idx_str in edited_images_dict:
                     # Use edited image
                     s3_key = edited_images_dict[idx_str]
                     if s3_key.startswith('edited/'):
                         s3.download_file(BUCKET_NAME, s3_key, local_path)
-                        print(f"Using edited image for page {idx}: {s3_key}")
+                        print(f"Using edited image for index {idx} (page {original_page + 1}): {s3_key}")
                 else:
                     # Use original annotated image
                     s3.download_file(BUCKET_NAME, img_key, local_path)
-                    print(f"Using original annotated image for page {idx}: {img_key}")
+                    print(f"Using original annotated image for index {idx} (page {original_page + 1}): {img_key}")
 
                 annotated_info.append({
                     'file_path': local_path,
-                    'original_page': idx
+                    'original_page': original_page  # Use actual page from metadata
                 })
 
                 # Update progress

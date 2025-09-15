@@ -53,15 +53,27 @@ def lambda_handler(event, context):
             'ttl': timestamp + 2592000  # Expire after 30 days
         }
         
-        # If extraction job ID provided, copy extracted images from that job
+        # If extraction job ID provided, copy extracted images and original PDF from that job
         if extraction_job_id:
             print(f"Looking up extraction job: {extraction_job_id}")
             extraction_response = table.get_item(Key={'jobId': extraction_job_id})
             if 'Item' in extraction_response:
-                print(f"Found extraction job, has extractedImages: {'extractedImages' in extraction_response['Item']}")
-                if 'extractedImages' in extraction_response['Item']:
-                    job_item['extractedImages'] = extraction_response['Item']['extractedImages']
-                    print(f"Copied {len(extraction_response['Item']['extractedImages'])} images from extraction job")
+                extraction_item = extraction_response['Item']
+                print(f"Found extraction job, has extractedImages: {'extractedImages' in extraction_item}")
+
+                # Copy extracted images
+                if 'extractedImages' in extraction_item:
+                    job_item['extractedImages'] = extraction_item['extractedImages']
+                    print(f"Copied {len(extraction_item['extractedImages'])} images from extraction job")
+
+                # Copy original PDF S3 key if exists
+                if 'originalPdfS3Key' in extraction_item:
+                    job_item['originalPdfS3Key'] = extraction_item['originalPdfS3Key']
+                    print(f"Copied originalPdfS3Key: {extraction_item['originalPdfS3Key']}")
+                elif 's3_key' in extraction_item:
+                    # Fallback to s3_key if originalPdfS3Key doesn't exist
+                    job_item['originalPdfS3Key'] = extraction_item['s3_key']
+                    print(f"Copied s3_key as originalPdfS3Key: {extraction_item['s3_key']}")
             else:
                 print(f"Extraction job {extraction_job_id} not found in DynamoDB")
         elif extracted_images:

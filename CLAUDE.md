@@ -27,10 +27,21 @@
 ### AWS
 - **Lambda 업데이트**: `update-lambda.sh` 스크립트를 사용하여 개별적으로 진행 (권장)
 - **CloudFront**: 커스텀 도메인 patent.sncbears.cloud 사용 중 (ACM 인증서 포함)
-- **SAM 배포 주의사항**: 
-  - API Gateway HTTPS 설정 및 CloudFront 도메인 설정이 초기화되지 않도록 주의
-  - 이제 template.yaml에 CloudFront 커스텀 도메인 설정이 포함되어 SAM 배포 시에도 유지됨
-  - 하지만 Lambda 함수만 업데이트할 경우 `update-lambda.sh` 사용을 권장
+
+### ⚠️ CloudFront 배포 주의사항 (매우 중요!)
+- **절대 SAM deploy를 사용하지 마세요!** CloudFront 설정이 덮어써집니다.
+- **문제점**:
+  - CloudFormation/SAM은 선언적 방식으로 작동하여 template.yaml에 없는 설정은 삭제됨
+  - AWS Console에서 수동 추가한 behavior들이 사라짐
+  - CloudFront는 부분 업데이트가 불가능하여 전체 설정이 교체됨
+- **현재 필수 CloudFront Behaviors**:
+  - `results/*` → DocumentsOrigin
+  - `edited/*` → DocumentsOrigin
+  - `uploads/*` → DocumentsOrigin
+- **해결 방법**:
+  - Lambda 함수만 업데이트: `./update-lambda.sh` 사용 (안전)
+  - CloudFront 수정 필요 시: AWS Console에서 직접 수정
+  - 절대 `sam deploy` 실행 금지
    
 ## 아키텍처
 
