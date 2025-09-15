@@ -425,10 +425,14 @@
                   <span v-else class="status-badge" :class="job.status === 'COMPLETED' && job.processType === 'EXTRACTION' ? 'analysis-complete' : job.status">
                     {{ getStatusText(job.status, job.processType) }}
                   </span>
-                  <!-- 재생성된 PDF가 있으면 태그 표시 -->
-                  <span v-if="job.regeneratedPdfs && job.regeneratedPdfs.length > 0"
+                  <!-- 재생성 상태에 따라 태그 표시 -->
+                  <span v-if="getRegenerationStatus(job) === 'processing'"
+                        class="status-badge regenerating">
+                    재생성중
+                  </span>
+                  <span v-else-if="getRegenerationStatus(job) === 'completed'"
                         class="status-badge regenerated">
-                    재생성
+                    재생성완료
                   </span>
                 </div>
               </div>
@@ -1492,16 +1496,40 @@ export default {
       }
     }
 
+    const getRegenerationStatus = (job) => {
+      // 재생성된 PDF가 없으면 null 반환
+      if (!job.regeneratedPdfs || job.regeneratedPdfs.length === 0) {
+        return null
+      }
+
+      // 재생성된 PDF들의 상태 확인
+      const hasProcessing = job.regeneratedPdfs.some(pdf =>
+        pdf.status === 'PROCESSING' || !pdf.status
+      )
+      const hasCompleted = job.regeneratedPdfs.some(pdf =>
+        pdf.status === 'COMPLETED'
+      )
+
+      // 처리 중인 것이 있으면 'processing', 완료된 것만 있으면 'completed'
+      if (hasProcessing) {
+        return 'processing'
+      } else if (hasCompleted) {
+        return 'completed'
+      }
+
+      return null
+    }
+
     const formatDate = (timestamp) => {
       if (!timestamp) return '-'
-      
+
       // Check if timestamp is in seconds (Unix timestamp) or milliseconds (JavaScript timestamp)
       let dateValue = timestamp
       if (timestamp < 10000000000) {
         // If timestamp is less than 10 billion, it's probably in seconds, convert to milliseconds
         dateValue = timestamp * 1000
       }
-      
+
       const date = new Date(dateValue)
       // Check if date is valid
       if (isNaN(date.getTime())) {
@@ -2024,6 +2052,7 @@ export default {
       formatDate,
       getStatusText,
       getJobFilename,
+      getRegenerationStatus,
       trackProcessingJob,
       startNewTask,
       reworkTask,
@@ -2146,10 +2175,26 @@ export default {
   color: #991b1b;
 }
 
-.status-badge.regenerated {
-  background: #fef3c7;
-  color: #92400e;
+.status-badge.regenerating {
+  background: #dbeafe;
+  color: #1e40af;
   margin-left: 8px;
+  animation: pulse 1.5s infinite;
+}
+
+.status-badge.regenerated {
+  background: #d1fae5;
+  color: #065f46;
+  margin-left: 8px;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
 }
 
 .status-badge.clickable {

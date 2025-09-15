@@ -369,7 +369,7 @@ def process_with_ocr(job_id, pdf_filename):
         raise
 
 def regenerate_pdf_with_edited_images(job_id, original_job_id, pdf_filename, output_s3_key, edited_images):
-    """Regenerate PDF with edited images"""
+    """Regenerate PDF with edited images - maintaining original PDF pages"""
     print(f"Regenerating PDF for job {job_id}, original job {original_job_id}")
     start_time = time.time()
 
@@ -388,48 +388,99 @@ def regenerate_pdf_with_edited_images(job_id, original_job_id, pdf_filename, out
 
         original_job = response['Item']
         annotated_images = original_job.get('annotatedImages', [])
+        extracted_images = original_job.get('extractedImages', [])
+        original_pdf_s3_key = original_job.get('originalPdfS3Key') or original_job.get('s3_key')
 
         # Parse edited images
         edited_images_dict = json.loads(edited_images) if isinstance(edited_images, str) else edited_images
 
-        # Download images and prepare for PDF generation
-        with tempfile.TemporaryDirectory() as temp_dir:
-            image_paths = []
+        if not original_pdf_s3_key:
+            raise ValueError(f"Original PDF not found for job {original_job_id}")
 
+        # Download original PDF and images
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Download original PDF
+            original_pdf_path = os.path.join(temp_dir, 'original.pdf')
+            print(f"Downloading original PDF from {original_pdf_s3_key}")
+            s3.download_file(BUCKET_NAME, original_pdf_s3_key, original_pdf_path)
+
+            # Prepare extracted images info with bbox
+            extracted_info = []
+
+            # Get extractedImagesMetadata from DynamoDB
+            extracted_metadata = original_job.get('extractedImagesMetadata', [])
+
+            for idx, img_key in enumerate(extracted_images):
+                # Get bbox from metadata if available
+                bbox = None
+                if idx < len(extracted_metadata):
+                    metadata = extracted_metadata[idx]
+                    if isinstance(metadata, dict):
+                        bbox_data = metadata.get('bbox')
+                        if bbox_data:
+                            # Convert Decimal to float if needed
+                            bbox = {}
+                            for key, value in bbox_data.items():
+                                try:
+                                    from decimal import Decimal
+                                    if isinstance(value, Decimal):
+                                        bbox[key] = float(value)
+                                    else:
+                                        bbox[key] = value
+                                except:
+                                    bbox[key] = value
+
+                extracted_info.append({
+                    'file_path': img_key,
+                    'original_page': idx,  # Page index
+                    'bbox': bbox
+                })
+
+            # Prepare annotated images (edited or original)
+            annotated_info = []
             for idx, img_key in enumerate(annotated_images):
-                # Check if this image has been edited
                 idx_str = str(idx)
+                local_path = os.path.join(temp_dir, f"annotated_{idx}.png")
+
                 if idx_str in edited_images_dict:
                     # Use edited image
                     s3_key = edited_images_dict[idx_str]
                     if s3_key.startswith('edited/'):
-                        local_path = os.path.join(temp_dir, f"page_{idx}.png")
                         s3.download_file(BUCKET_NAME, s3_key, local_path)
-                        image_paths.append(local_path)
                         print(f"Using edited image for page {idx}: {s3_key}")
                 else:
                     # Use original annotated image
-                    local_path = os.path.join(temp_dir, f"page_{idx}.png")
                     s3.download_file(BUCKET_NAME, img_key, local_path)
-                    image_paths.append(local_path)
                     print(f"Using original annotated image for page {idx}: {img_key}")
 
+                annotated_info.append({
+                    'file_path': local_path,
+                    'original_page': idx
+                })
+
                 # Update progress
-                progress = 10 + int((idx + 1) / len(annotated_images) * 70)
+                progress = 10 + int((idx + 1) / len(annotated_images) * 60)
                 update_job_status(job_id, 'PROCESSING',
                                 message=f'이미지 처리 중... ({idx + 1}/{len(annotated_images)})',
                                 progress=progress)
 
-            # Generate PDF
+            # Generate PDF with original pages maintained
             pdf_generator = PDFGenerator()
-            output_pdf_path = os.path.join(temp_dir, 'regenerated.pdf')
+            # Set output directory to temp dir
+            pdf_generator.output_dir = Path(temp_dir)
 
             update_job_status(job_id, 'PROCESSING',
-                            message='PDF 생성 중...',
-                            progress=85)
+                            message='원본 페이지를 유지하며 PDF 생성 중...',
+                            progress=75)
 
-            # Create PDF from images
-            pdf_generator.create_pdf_from_images(image_paths, output_pdf_path)
+            # Use create_annotated_pdf to maintain original pages
+            output_path = pdf_generator.create_annotated_pdf(
+                Path(original_pdf_path),
+                extracted_info,
+                annotated_info,
+                output_filename='regenerated.pdf'
+            )
+            output_pdf_path = str(output_path)
 
             # Upload to S3
             update_job_status(job_id, 'PROCESSING',

@@ -113,6 +113,14 @@ def lambda_handler(event, context):
                     edited_images_with_urls[index] = img_key  # Fallback to key
             print(f"Final edited_images_with_urls: {edited_images_with_urls}")
 
+        # Generate original PDF URL if available
+        original_pdf_url = None
+        if 'originalPdfS3Key' in item and item['originalPdfS3Key']:
+            original_pdf_s3_key = item['originalPdfS3Key']
+            # Generate CloudFront URL for original PDF
+            original_pdf_url = f"{CLOUDFRONT_DOMAIN}/{original_pdf_s3_key}"
+            print(f"Original PDF URL: {original_pdf_url}")
+
         # Process regenerated PDFs to include full URLs
         regenerated_pdfs = []
         if 'regeneratedPdfs' in item and item['regeneratedPdfs']:
@@ -148,6 +156,7 @@ def lambda_handler(event, context):
                 'jobId': job_id,
                 'status': 'COMPLETED',
                 'filename': item.get('filename'),
+                'originalPdfUrl': original_pdf_url,  # 원본 PDF URL (CloudFront URL)
                 'extractedImages': extracted_images,
                 'annotatedImages': annotated_images,
                 'annotatedPdf': item.get('annotatedPdf'),  # PDF 필드 추가

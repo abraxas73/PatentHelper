@@ -106,8 +106,11 @@
                 <span v-if="isRegeneratingPdf" class="loading"></span>
                 <span v-else>🔄 PDF 재생성</span>
               </button>
+              <button v-if="jobData.originalPdfUrl" @click="downloadOriginalPdf" class="btn-pdf-original">
+                📋 원본 PDF
+              </button>
               <button v-if="jobData.annotatedPdf" @click="downloadPdf" class="btn-pdf-download">
-                📄 PDF 다운로드
+                📄 어노테이션 PDF
               </button>
             </div>
           </div>
@@ -509,6 +512,27 @@ const regeneratePdfForce = async () => {
   } catch (error) {
     console.error('Failed to force regenerate PDF:', error)
     alert('PDF 재생성에 실패했습니다.')
+  }
+}
+
+const downloadOriginalPdf = async () => {
+  try {
+    // Check if originalPdfUrl is available
+    if (jobData.value.originalPdfUrl) {
+      // Use the provided URL directly
+      const link = document.createElement('a')
+      link.href = jobData.value.originalPdfUrl
+      link.download = getJobFilename(jobData.value)
+      link.target = '_blank'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    } else {
+      alert('원본 PDF를 찾을 수 없습니다.')
+    }
+  } catch (error) {
+    console.error('Original PDF download failed:', error)
+    alert('원본 PDF 다운로드에 실패했습니다.')
   }
 }
 
@@ -928,6 +952,24 @@ onUnmounted(() => {
   gap: 10px;
 }
 
+.btn-pdf-original {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(107, 114, 128, 0.3);
+}
+
+.btn-pdf-original:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(107, 114, 128, 0.4);
+}
+
 .btn-pdf-download {
   padding: 10px 20px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -946,7 +988,8 @@ onUnmounted(() => {
   box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
 }
 
-.btn-pdf-download:active {
+.btn-pdf-download:active,
+.btn-pdf-original:active {
   transform: translateY(0);
 }
 

@@ -45,6 +45,7 @@ def lambda_handler(event, context):
                 'jobId': job_id,
                 's3_key': s3_key,
                 'filename': filename,
+                'originalPdfS3Key': s3_key,  # 원본 PDF S3 경로 저장
                 'status': 'PENDING',
                 'message': '파일 업로드 대기 중...',
                 'createdAt': timestamp,
