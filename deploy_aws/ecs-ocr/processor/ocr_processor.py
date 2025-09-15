@@ -388,7 +388,7 @@ def regenerate_pdf_with_edited_images(job_id, original_job_id, pdf_filename, out
 
         original_job = response['Item']
         annotated_images = original_job.get('annotatedImages', [])
-        extracted_images = original_job.get('extractedImages', [])
+        extracted_images_data = original_job.get('extractedImages', [])
         original_pdf_s3_key = original_job.get('originalPdfS3Key') or original_job.get('s3_key')
 
         # Parse edited images
@@ -404,49 +404,52 @@ def regenerate_pdf_with_edited_images(job_id, original_job_id, pdf_filename, out
             print(f"Downloading original PDF from {original_pdf_s3_key}")
             s3.download_file(BUCKET_NAME, original_pdf_s3_key, original_pdf_path)
 
-            # Prepare extracted images info with bbox
+            # Prepare extracted images info with bbox and page info
             extracted_info = []
 
-            # Get extractedImagesMetadata from DynamoDB
-            extracted_metadata = original_job.get('extractedImagesMetadata', [])
+            # Process extracted images from DynamoDB - they contain page_num and bbox info
+            for idx, img_data in enumerate(extracted_images_data):
+                # img_data can be a string (S3 key) or a dict with metadata
+                if isinstance(img_data, str):
+                    # Legacy format - just S3 key
+                    img_key = img_data
+                    page_num = idx  # Default to sequential
+                    bbox = None
+                else:
+                    # New format - dict with metadata
+                    img_key = img_data.get('file_path') or img_data.get('s3_key', '')
 
-            for idx, img_key in enumerate(extracted_images):
-                # Get bbox and original_page from metadata if available
-                bbox = None
-                original_page = idx  # Default to sequential index
+                    # Get page_num from the data (1-indexed from extraction)
+                    if 'page_num' in img_data and img_data['page_num'] is not None:
+                        # Convert from 1-indexed to 0-indexed
+                        page_num = int(img_data['page_num']) - 1
+                    else:
+                        # Fallback: parse from filename
+                        import re
+                        match = re.search(r'drawing_(\d+)_', img_key)
+                        if match:
+                            page_num = int(match.group(1)) - 1
+                        else:
+                            page_num = idx
 
-                if idx < len(extracted_metadata):
-                    metadata = extracted_metadata[idx]
-                    if isinstance(metadata, dict):
-                        # Get the actual original page number from metadata
-                        if 'original_page' in metadata:
+                    # Get bbox data and convert Decimal to float
+                    bbox_data = img_data.get('bbox')
+                    bbox = None
+                    if bbox_data and isinstance(bbox_data, dict):
+                        bbox = {}
+                        for key, value in bbox_data.items():
                             try:
                                 from decimal import Decimal
-                                if isinstance(metadata['original_page'], Decimal):
-                                    original_page = int(metadata['original_page'])
+                                if isinstance(value, Decimal):
+                                    bbox[key] = float(value)
                                 else:
-                                    original_page = int(metadata['original_page'])
-                            except:
-                                original_page = idx
-
-                        # Get bbox data
-                        bbox_data = metadata.get('bbox')
-                        if bbox_data:
-                            # Convert Decimal to float if needed
-                            bbox = {}
-                            for key, value in bbox_data.items():
-                                try:
-                                    from decimal import Decimal
-                                    if isinstance(value, Decimal):
-                                        bbox[key] = float(value)
-                                    else:
-                                        bbox[key] = value
-                                except:
                                     bbox[key] = value
+                            except:
+                                bbox[key] = value
 
                 extracted_info.append({
                     'file_path': img_key,
-                    'original_page': original_page,  # Use actual page from metadata
+                    'original_page': page_num,  # Use the page number from extraction
                     'bbox': bbox
                 })
 
@@ -456,19 +459,9 @@ def regenerate_pdf_with_edited_images(job_id, original_job_id, pdf_filename, out
                 idx_str = str(idx)
                 local_path = os.path.join(temp_dir, f"annotated_{idx}.png")
 
-                # Get the actual original page number from extracted_metadata
-                original_page = idx  # Default to sequential index
-                if idx < len(extracted_metadata):
-                    metadata = extracted_metadata[idx]
-                    if isinstance(metadata, dict) and 'original_page' in metadata:
-                        try:
-                            from decimal import Decimal
-                            if isinstance(metadata['original_page'], Decimal):
-                                original_page = int(metadata['original_page'])
-                            else:
-                                original_page = int(metadata['original_page'])
-                        except:
-                            original_page = idx
+                # Get the actual original page number from extracted_info
+                # Since annotated_images and extracted_images have the same order and count
+                original_page = extracted_info[idx]['original_page'] if idx < len(extracted_info) else idx
 
                 if idx_str in edited_images_dict:
                     # Use edited image
@@ -483,7 +476,7 @@ def regenerate_pdf_with_edited_images(job_id, original_job_id, pdf_filename, out
 
                 annotated_info.append({
                     'file_path': local_path,
-                    'original_page': original_page  # Use actual page from metadata
+                    'original_page': original_page  # Use page number from extracted_info
                 })
 
                 # Update progress
