@@ -324,7 +324,16 @@ GitHub에 푸시하면 GitHub Actions가 자동으로 배포
 - **크로스 브라우저 다운로드**: CORS 문제 해결, blob 변환 방식 적용
 
 ### 🚀 최신 개선사항 (2025.01.16)
-1. **원본 PDF 다운로드 기능 추가**:
+1. **PDF 재생성 페이지 매핑 버그 수정**:
+   - 도면이 원본 PDF의 정확한 위치에 치환되도록 수정
+   - 파일명에서 페이지 번호 추출 로직 개선 (drawing_020 → 페이지 20)
+   - 어노테이션 PDF 생성과 동일한 로직 적용
+   - extractedImages 데이터에서 페이지 정보 올바르게 파싱
+2. **CloudFront 배포 문제 해결**:
+   - SAM deploy 사용 금지 문서화 (DO_NOT_USE_SAM_DEPLOY.md)
+   - CloudFront behaviors 수동 관리 필요성 명시
+   - uploads/*, edited/* 경로 설정 추가
+3. **원본 PDF 다운로드 기능 추가**:
    - 업로드 시 원본 PDF를 S3에 저장
    - DynamoDB에 originalPdfS3Key 필드 추가
    - 작업 이력 상세에서 원본 PDF 다운로드 버튼 제공
