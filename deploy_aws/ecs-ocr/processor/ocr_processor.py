@@ -413,7 +413,15 @@ def regenerate_pdf_with_edited_images(job_id, original_job_id, pdf_filename, out
                 if isinstance(img_data, str):
                     # Legacy format - just S3 key
                     img_key = img_data
-                    page_num = idx  # Default to sequential
+
+                    # Extract page number from filename (e.g., drawing_020_00.png -> page 19)
+                    import re
+                    match = re.search(r'drawing_(\d+)_', img_key)
+                    if match:
+                        # drawing_020 means it's from page 20 (1-indexed), so convert to 19 (0-indexed)
+                        page_num = int(match.group(1)) - 1
+                    else:
+                        page_num = idx  # Fallback to sequential
                     bbox = None
                 else:
                     # New format - dict with metadata
