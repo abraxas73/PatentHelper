@@ -95,7 +95,8 @@ def lambda_handler(event, context):
                 'message': item.get('message', ''),
                 'imageCount': item.get('imageCount', 0),
                 'annotatedCount': item.get('annotatedCount', 0),
-                'userId': item.get('userId', 'anonymous')
+                'userId': item.get('userId', 'anonymous'),
+                'regeneratedPdfs': item.get('regeneratedPdfs', [])  # 재생성된 PDF 정보 추가
             })
         
         return {

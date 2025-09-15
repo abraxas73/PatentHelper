@@ -309,6 +309,74 @@ class PDFGenerator:
             logger.error(f"Failed to create A4 image page: {e}")
             return None
     
+    def create_pdf_from_images(self, image_paths: List[Union[str, Path]], output_path: Union[str, Path]) -> Path:
+        """
+        Create a PDF from a list of image files
+
+        Args:
+            image_paths: List of paths to image files
+            output_path: Path where the PDF should be saved
+
+        Returns:
+            Path to the generated PDF file
+        """
+        try:
+            output_path = Path(output_path)
+
+            # Create PDF with ReportLab
+            c = canvas.Canvas(str(output_path), pagesize=A4)
+            page_width, page_height = A4
+
+            for image_path in image_paths:
+                image_path = Path(image_path)
+
+                if not image_path.exists():
+                    logger.warning(f"Image not found: {image_path}")
+                    continue
+
+                # Open image to get dimensions
+                with Image.open(image_path) as img:
+                    img_width, img_height = img.size
+
+                # Calculate scaling to fit on page with margins
+                margin = 50  # 50 points margin
+                available_width = page_width - (2 * margin)
+                available_height = page_height - (2 * margin)
+
+                width_ratio = available_width / img_width
+                height_ratio = available_height / img_height
+                scale = min(width_ratio, height_ratio, 1.0)  # Don't upscale
+
+                # Calculate new dimensions
+                new_width = img_width * scale
+                new_height = img_height * scale
+
+                # Center the image on the page
+                x = (page_width - new_width) / 2
+                y = (page_height - new_height) / 2
+
+                # Draw the image
+                c.drawImage(
+                    str(image_path),
+                    x, y,
+                    width=new_width,
+                    height=new_height,
+                    preserveAspectRatio=True
+                )
+
+                # Start a new page for the next image
+                c.showPage()
+
+            # Save the PDF
+            c.save()
+
+            logger.info(f"PDF created successfully: {output_path}")
+            return output_path
+
+        except Exception as e:
+            logger.error(f"Failed to create PDF from images: {e}")
+            raise
+
     def _create_separator_page(self, text: str):
         """Create a separator page with text"""
         if not HAS_PYPDF:

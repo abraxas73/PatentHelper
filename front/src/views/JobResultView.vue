@@ -75,10 +75,11 @@
         <div class="image-grid">
           <div v-for="(image, index) in jobData.extractedImages" :key="index" class="image-card">
             <div class="image-wrapper">
-              <img 
-                :src="getImageUrl(image)" 
-                :alt="`도면 ${index + 1}`" 
+              <img
+                :src="getImageUrl(image)"
+                :alt="`도면 ${index + 1}`"
                 @click="openModal(image)"
+                @error="handleImageError($event, image)"
                 style="cursor: pointer;"
               />
             </div>
@@ -117,16 +118,35 @@
                   :src="getImageUrl(image)"
                   :alt="`어노테이션 ${index + 1}`"
                   @click="openModal(image, index, true)"
+                  @error="handleImageError($event, image)"
                   style="cursor: pointer;"
                 />
               </div>
               <div class="image-info">
                 <div class="image-title">어노테이션 {{ index + 1 }}</div>
                 <div class="image-meta">
-                  <span class="badge badge-annotated">명칭 추가됨</span>
+                  <span v-if="image.isEdited" class="badge badge-edited">✏️ 편집됨</span>
+                  <span v-else class="badge badge-annotated">명칭 추가됨</span>
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 재생성된 PDF 섹션 -->
+      <div v-if="jobData.regeneratedPdfs && jobData.regeneratedPdfs.length > 0" class="regenerated-pdfs-section">
+        <h3>재생성된 PDF</h3>
+        <div class="pdf-list">
+          <div v-for="pdf in jobData.regeneratedPdfs" :key="pdf.jobId" class="pdf-item">
+            <div class="pdf-info">
+              <span class="pdf-filename">{{ pdf.filename }}</span>
+              <span class="pdf-date">{{ formatDate(pdf.timestamp) }}</span>
+              <span class="edit-count">편집 {{ pdf.editCount }}개</span>
+            </div>
+            <button @click="downloadRegeneratedPdf(pdf)" class="btn-download">
+              📥 다운로드
+            </button>
           </div>
         </div>
       </div>
@@ -212,15 +232,20 @@ const formatDate = (timestamp) => {
 const getImageUrl = (image) => {
   // If image is an object with url property, use it
   if (typeof image === 'object' && image.url) {
+    console.log('getImageUrl: Using image.url:', image.url)
     return image.url
   }
   // For local development, use the local API endpoint
   if (config.isLocal) {
     const filename = typeof image === 'string' ? image : image.filename
-    return `${API_BASE_URL}/images/${encodeURIComponent(filename)}`
+    const url = `${API_BASE_URL}/images/${encodeURIComponent(filename)}`
+    console.log('getImageUrl: Local URL:', url)
+    return url
   }
   // Otherwise fallback to old behavior (for backward compatibility)
-  return `${API_BASE_URL}/images/${encodeURIComponent(image)}`
+  const url = `${API_BASE_URL}/images/${encodeURIComponent(image)}`
+  console.log('getImageUrl: Fallback URL:', url)
+  return url
 }
 
 const getImageName = (image) => {
@@ -283,6 +308,51 @@ const goBack = () => {
   router.push('/')
 }
 
+const downloadRegeneratedPdf = async (pdf) => {
+  try {
+    if (!pdf.url) {
+      console.error('PDF URL not found')
+      return
+    }
+
+    // For S3 URLs, download directly
+    console.log('Downloading regenerated PDF:', pdf.url)
+
+    // Fetch the PDF as blob
+    const response = await axios.get(pdf.url, {
+      responseType: 'blob'
+    })
+
+    // Create blob URL and download
+    const blob = new Blob([response.data], { type: 'application/pdf' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = pdf.filename || 'regenerated.pdf'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch (error) {
+    console.error('Failed to download regenerated PDF:', error)
+    alert('PDF 다운로드에 실패했습니다.')
+  }
+}
+
+const handleImageError = (event, image) => {
+  console.error('Image failed to load:', image)
+  console.log('Image URL that failed:', event.target.src)
+
+  // If this is an edited image, try to use the original URL as fallback
+  if (image.isEdited && image.originalUrl) {
+    console.log('Trying original URL as fallback:', image.originalUrl)
+    event.target.src = image.originalUrl
+  } else {
+    // Show a placeholder image
+    event.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2VlZSIvPjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjIwMCIgeT0iMTUwIiBzdHlsZT0iZmlsbDojYWFhO2ZvbnQtd2VpZ2h0OmJvbGQ7Zm9udC1zaXplOjE5cHg7Zm9udC1mYW1pbHk6QXJpYWwsSGVsdmV0aWNhLHNhbnMtc2VyaWY7ZG9taW5hbnQtYmFzZWxpbmU6Y2VudHJhbCI+SU1BR0UgTk9UIEZPVU5EPC90ZXh0Pjwvc3ZnPg=='
+  }
+}
+
 const handleEditedImage = async (data) => {
   console.log('JobResultView: handleEditedImage called with data:', data)
 
@@ -300,11 +370,13 @@ const handleEditedImage = async (data) => {
     // Create a completely new object for Vue reactivity
     const updatedImages = jobData.value.annotatedImages.map((img, idx) => {
       if (idx === imageIndex) {
+        // Explicitly create new object without spread to ensure url is overridden
         return {
-          ...img,
+          key: img.key || img,
+          filename: img.filename || '',
           url: editedData,  // Use the base64 data directly for immediate display
           isEdited: true,
-          originalUrl: img.originalUrl || img.url  // Keep original URL
+          originalUrl: img.originalUrl || img.url || (typeof img === 'string' ? `https://d38f9rplbkj0f2.cloudfront.net/${img}` : '')
         }
       }
       return img
@@ -312,6 +384,7 @@ const handleEditedImage = async (data) => {
 
     // Replace the entire array to trigger Vue reactivity
     jobData.value.annotatedImages = updatedImages
+    console.log('Updated annotatedImages after edit:', updatedImages)
 
     // Force update
     jobData.value = { ...jobData.value }
@@ -493,34 +566,70 @@ const loadJobResult = async () => {
       console.log('Loaded edited images from server:', editedImages.value)
 
       // Update annotated images with edited versions
-      if (jobData.value.annotatedImages) {
-        jobData.value.annotatedImages = jobData.value.annotatedImages.map((image, index) => {
-          // Convert index to string to match editedImages object keys
+      if (jobData.value.annotatedImages && Array.isArray(jobData.value.annotatedImages)) {
+        console.log('Original annotatedImages:', jobData.value.annotatedImages)
+
+        const updatedImages = []
+        for (let index = 0; index < jobData.value.annotatedImages.length; index++) {
+          const image = jobData.value.annotatedImages[index]
           const indexStr = String(index)
+
           if (editedImages.value[indexStr]) {
-            const editedKey = editedImages.value[indexStr]
-            let editedUrl = editedKey
-
-            // AWS environment: Build CloudFront URL for edited image
-            if (!config.isLocal) {
-              // If it's just a key (not a full URL), prepend CloudFront domain
-              if (!editedKey.startsWith('http')) {
-                const cloudFrontUrl = 'https://d38f9rplbkj0f2.cloudfront.net'
-                editedUrl = `${cloudFrontUrl}/${editedKey}`
-              }
-            } else {
-              // Local environment: Use the edited data directly
-              editedUrl = editedKey
-            }
-
+            // The editedImages should already contain full URLs from Lambda
+            const editedUrl = editedImages.value[indexStr]
             console.log(`Applying edited image for index ${indexStr}:`, editedUrl)
 
-            // Replace with edited version
-            return {
-              ...image,
-              url: editedUrl,
+            // Get original URL before replacing
+            let originalUrl = ''
+            if (typeof image === 'object' && image.url) {
+              originalUrl = image.url
+            } else if (typeof image === 'string') {
+              originalUrl = `https://d38f9rplbkj0f2.cloudfront.net/${image}`
+            } else if (image.key) {
+              originalUrl = `https://d38f9rplbkj0f2.cloudfront.net/${image.key}`
+            }
+
+            // Create new image object with edited URL - explicitly override url
+            const newImage = {
+              key: image.key || image,
+              filename: image.filename || (typeof image === 'string' ? image.split('/').pop() : ''),
+              url: editedUrl,  // Explicitly set the edited URL
               isEdited: true,
-              originalUrl: image.url
+              originalUrl: originalUrl
+            }
+            console.log(`Created new image object:`, newImage)
+            updatedImages.push(newImage)
+          } else {
+            // Keep original image, but ensure it has proper format
+            if (typeof image === 'string' || !image.url) {
+              const imageUrl = typeof image === 'string' ? image : (image.key || image.filename || '')
+              updatedImages.push({
+                key: imageUrl,
+                url: `https://d38f9rplbkj0f2.cloudfront.net/${imageUrl}`,
+                filename: imageUrl.split('/').pop(),
+                isEdited: false
+              })
+            } else {
+              updatedImages.push(image)
+            }
+          }
+        }
+
+        // Replace entire array to trigger Vue reactivity
+        jobData.value.annotatedImages = updatedImages
+        console.log('Updated annotatedImages:', jobData.value.annotatedImages)
+      }
+    } else {
+      // Even if no edited images, ensure annotatedImages have proper structure
+      if (jobData.value.annotatedImages && Array.isArray(jobData.value.annotatedImages)) {
+        jobData.value.annotatedImages = jobData.value.annotatedImages.map(image => {
+          if (typeof image === 'string' || !image.url) {
+            const imageUrl = typeof image === 'string' ? image : (image.key || image.filename || '')
+            return {
+              key: imageUrl,
+              url: `https://d38f9rplbkj0f2.cloudfront.net/${imageUrl}`,
+              filename: imageUrl.split('/').pop(),
+              isEdited: false
             }
           }
           return image
@@ -790,6 +899,12 @@ onUnmounted(() => {
   color: #7b1fa2;
 }
 
+.badge-edited {
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffc107;
+}
+
 .annotated-section {
   margin-top: 40px;
 }
@@ -867,6 +982,86 @@ onUnmounted(() => {
   border-radius: 50%;
   border-top-color: white;
   animation: spin 1s ease-in-out infinite;
+}
+
+.regenerated-pdfs-section {
+  margin-top: 30px;
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.regenerated-pdfs-section h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #2d3748;
+  margin: 0 0 20px 0;
+}
+
+.pdf-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pdf-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  transition: background 0.2s;
+}
+
+.pdf-item:hover {
+  background: #f1f5f9;
+}
+
+.pdf-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+}
+
+.pdf-filename {
+  font-weight: 600;
+  color: #1f2937;
+  flex: 1;
+}
+
+.pdf-date {
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.edit-count {
+  background: #fef3c7;
+  color: #92400e;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.btn-download {
+  padding: 8px 16px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-download:hover {
+  background: #2563eb;
+  transform: translateY(-1px);
 }
 
 .mappings-section {

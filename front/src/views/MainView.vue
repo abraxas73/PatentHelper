@@ -413,9 +413,9 @@
                 <div class="history-filename">{{ getJobFilename(job) }}</div>
                 <div class="history-date">{{ formatDate(job.createdAt) }}</div>
                 <div class="history-status">
-                  <span 
+                  <span
                     v-if="job.status === 'PROCESSING'"
-                    class="status-badge clickable" 
+                    class="status-badge clickable"
                     :class="job.status"
                     @click.stop="trackProcessingJob(job)"
                     title="클릭하여 진행 상황 보기"
@@ -424,6 +424,11 @@
                   </span>
                   <span v-else class="status-badge" :class="job.status === 'COMPLETED' && job.processType === 'EXTRACTION' ? 'analysis-complete' : job.status">
                     {{ getStatusText(job.status, job.processType) }}
+                  </span>
+                  <!-- 재생성된 PDF가 있으면 태그 표시 -->
+                  <span v-if="job.regeneratedPdfs && job.regeneratedPdfs.length > 0"
+                        class="status-badge regenerated">
+                    재생성
                   </span>
                 </div>
               </div>
@@ -2139,6 +2144,12 @@ export default {
 .status-badge.FAILED {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.status-badge.regenerated {
+  background: #fef3c7;
+  color: #92400e;
+  margin-left: 8px;
 }
 
 .status-badge.clickable {

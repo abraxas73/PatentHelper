@@ -31,6 +31,10 @@ JOB_ID = os.environ.get('JOB_ID')
 PDF_FILENAME = os.environ.get('PDF_FILENAME')
 BUCKET_NAME = os.environ.get('BUCKET_NAME', 'patent-helper-documents-prod')
 TABLE_NAME = os.environ.get('TABLE_NAME', 'patent-helper-jobs-prod')
+OPERATION = os.environ.get('OPERATION', 'OCR')  # OCR or REGENERATE_PDF
+ORIGINAL_JOB_ID = os.environ.get('ORIGINAL_JOB_ID')  # For PDF regeneration
+OUTPUT_S3_KEY = os.environ.get('OUTPUT_S3_KEY')  # For PDF regeneration
+EDITED_IMAGES = os.environ.get('EDITED_IMAGES', '{}')  # JSON string of edited images
 
 def update_job_status(job_id, status, **kwargs):
     """Update job status in DynamoDB"""
@@ -364,25 +368,168 @@ def process_with_ocr(job_id, pdf_filename):
         )
         raise
 
+def regenerate_pdf_with_edited_images(job_id, original_job_id, pdf_filename, output_s3_key, edited_images):
+    """Regenerate PDF with edited images"""
+    print(f"Regenerating PDF for job {job_id}, original job {original_job_id}")
+    start_time = time.time()
+
+    try:
+        # Update status
+        update_job_status(job_id, 'PROCESSING',
+                        message='PDF 재생성을 시작합니다...',
+                        progress=10)
+
+        # Get original job data
+        table = dynamodb.Table(TABLE_NAME)
+        response = table.get_item(Key={'jobId': original_job_id})
+
+        if 'Item' not in response:
+            raise ValueError(f"Original job {original_job_id} not found")
+
+        original_job = response['Item']
+        annotated_images = original_job.get('annotatedImages', [])
+
+        # Parse edited images
+        edited_images_dict = json.loads(edited_images) if isinstance(edited_images, str) else edited_images
+
+        # Download images and prepare for PDF generation
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_paths = []
+
+            for idx, img_key in enumerate(annotated_images):
+                # Check if this image has been edited
+                idx_str = str(idx)
+                if idx_str in edited_images_dict:
+                    # Use edited image
+                    s3_key = edited_images_dict[idx_str]
+                    if s3_key.startswith('edited/'):
+                        local_path = os.path.join(temp_dir, f"page_{idx}.png")
+                        s3.download_file(BUCKET_NAME, s3_key, local_path)
+                        image_paths.append(local_path)
+                        print(f"Using edited image for page {idx}: {s3_key}")
+                else:
+                    # Use original annotated image
+                    local_path = os.path.join(temp_dir, f"page_{idx}.png")
+                    s3.download_file(BUCKET_NAME, img_key, local_path)
+                    image_paths.append(local_path)
+                    print(f"Using original annotated image for page {idx}: {img_key}")
+
+                # Update progress
+                progress = 10 + int((idx + 1) / len(annotated_images) * 70)
+                update_job_status(job_id, 'PROCESSING',
+                                message=f'이미지 처리 중... ({idx + 1}/{len(annotated_images)})',
+                                progress=progress)
+
+            # Generate PDF
+            pdf_generator = PDFGenerator()
+            output_pdf_path = os.path.join(temp_dir, 'regenerated.pdf')
+
+            update_job_status(job_id, 'PROCESSING',
+                            message='PDF 생성 중...',
+                            progress=85)
+
+            # Create PDF from images
+            pdf_generator.create_pdf_from_images(image_paths, output_pdf_path)
+
+            # Upload to S3
+            update_job_status(job_id, 'PROCESSING',
+                            message='PDF 업로드 중...',
+                            progress=95)
+
+            s3.upload_file(output_pdf_path, BUCKET_NAME, output_s3_key)
+            print(f"Uploaded regenerated PDF to s3://{BUCKET_NAME}/{output_s3_key}")
+
+            # Update original job's regeneratedPdfs array - mark this one as COMPLETED
+            # Find the index of this regeneration job in the array
+            regenerated_pdfs = original_job.get('regeneratedPdfs', [])
+            for idx, pdf_info in enumerate(regenerated_pdfs):
+                if pdf_info.get('jobId') == job_id:
+                    # Update the status to COMPLETED
+                    table.update_item(
+                        Key={'jobId': original_job_id},
+                        UpdateExpression=f'SET regeneratedPdfs[{idx}].#status = :completed',
+                        ExpressionAttributeNames={'#status': 'status'},
+                        ExpressionAttributeValues={':completed': 'COMPLETED'}
+                    )
+                    print(f"Updated regeneratedPdfs[{idx}].status to COMPLETED for original job {original_job_id}")
+                    break
+
+            # Update regeneration job status
+            processing_time = int(time.time() - start_time)
+            update_job_status(
+                job_id, 'COMPLETED',
+                message='PDF 재생성이 완료되었습니다',
+                progress=100,
+                completedAt=int(time.time()),
+                processingTime=processing_time,
+                regeneratedPdfUrl=f's3://{BUCKET_NAME}/{output_s3_key}'
+            )
+
+            print(f"Successfully regenerated PDF for job {job_id}")
+
+    except Exception as e:
+        print(f"Error regenerating PDF for job {job_id}: {str(e)}")
+        traceback.print_exc()
+
+        # Update both jobs to failed status
+        update_job_status(
+            job_id, 'FAILED',
+            message=f'PDF 재생성 실패: {str(e)}',
+            errorDetails=str(e)
+        )
+
+        # Also update the original job's regeneratedPdfs entry
+        try:
+            regenerated_pdfs = original_job.get('regeneratedPdfs', [])
+            for idx, pdf_info in enumerate(regenerated_pdfs):
+                if pdf_info.get('jobId') == job_id:
+                    table.update_item(
+                        Key={'jobId': original_job_id},
+                        UpdateExpression=f'SET regeneratedPdfs[{idx}].#status = :failed',
+                        ExpressionAttributeNames={'#status': 'status'},
+                        ExpressionAttributeValues={':failed': 'FAILED'}
+                    )
+                    break
+        except:
+            pass
+
+        raise
+
 def main():
     """Main entry point"""
     if not JOB_ID or not PDF_FILENAME:
         print("Error: JOB_ID and PDF_FILENAME are required")
         sys.exit(1)
-    
-    print(f"Starting OCR job: {JOB_ID}")
-    
+
+    print(f"Starting job: {JOB_ID}, Operation: {OPERATION}")
+
     try:
-        # Update status to show container has started
-        update_job_status(JOB_ID, 'PROCESSING', 
-                        message='OCR 처리 컨테이너가 시작되었습니다', 
-                        progress=5)
-        
-        process_with_ocr(JOB_ID, PDF_FILENAME)
-        
-        print(f"Successfully completed OCR job {JOB_ID}")
+        if OPERATION == 'REGENERATE_PDF':
+            # PDF regeneration mode
+            if not ORIGINAL_JOB_ID or not OUTPUT_S3_KEY:
+                print("Error: ORIGINAL_JOB_ID and OUTPUT_S3_KEY are required for PDF regeneration")
+                sys.exit(1)
+
+            regenerate_pdf_with_edited_images(
+                JOB_ID,
+                ORIGINAL_JOB_ID,
+                PDF_FILENAME,
+                OUTPUT_S3_KEY,
+                EDITED_IMAGES
+            )
+
+            print(f"Successfully completed PDF regeneration job {JOB_ID}")
+        else:
+            # Normal OCR mode
+            update_job_status(JOB_ID, 'PROCESSING',
+                            message='OCR 처리 컨테이너가 시작되었습니다',
+                            progress=5)
+
+            process_with_ocr(JOB_ID, PDF_FILENAME)
+
+            print(f"Successfully completed OCR job {JOB_ID}")
     except Exception as e:
-        print(f"Fatal error in OCR job {JOB_ID}: {str(e)}")
+        print(f"Fatal error in job {JOB_ID}: {str(e)}")
         traceback.print_exc()
         sys.exit(1)
 

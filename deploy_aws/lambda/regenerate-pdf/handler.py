@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 import os
 from decimal import Decimal
+from botocore.exceptions import ClientError
 
 s3 = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
@@ -81,28 +82,42 @@ def lambda_handler(event, context):
             # Get the most recent regenerated PDF
             latest_pdf = max(regenerated_pdfs, key=lambda x: x.get('timestamp', 0))
 
-            # Generate presigned URL
-            presigned_url = s3.generate_presigned_url(
-                'get_object',
-                Params={'Bucket': BUCKET_NAME, 'Key': latest_pdf['s3Key'].replace(f's3://{BUCKET_NAME}/', '')},
-                ExpiresIn=3600
-            )
+            # Check if the file actually exists in S3
+            s3_key = latest_pdf['s3Key'].replace(f's3://{BUCKET_NAME}/', '')
+            try:
+                s3.head_object(Bucket=BUCKET_NAME, Key=s3_key)
+                print(f"Found existing PDF in S3: {s3_key}")
 
-            return {
-                'statusCode': 200,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*'
-                },
-                'body': json.dumps({
-                    'action': 'existing_pdf_found',
-                    'message': 'Existing regenerated PDF found for current session',
-                    'pdfUrl': presigned_url,
-                    'filename': latest_pdf['filename'],
-                    'timestamp': latest_pdf['timestamp'],
-                    'editCount': latest_pdf.get('editCount', 0)
-                })
-            }
+                # Generate presigned URL
+                presigned_url = s3.generate_presigned_url(
+                    'get_object',
+                    Params={'Bucket': BUCKET_NAME, 'Key': s3_key},
+                    ExpiresIn=3600
+                )
+
+                return {
+                    'statusCode': 200,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'Access-Control-Allow-Origin': '*'
+                    },
+                    'body': json.dumps({
+                        'action': 'existing_pdf_found',
+                        'message': 'Existing regenerated PDF found for current session',
+                        'pdfUrl': presigned_url,
+                        'filename': latest_pdf['filename'],
+                        'timestamp': latest_pdf['timestamp'],
+                        'editCount': latest_pdf.get('editCount', 0)
+                    }, default=decimal_default)
+                }
+            except ClientError as e:
+                error_code = e.response.get('Error', {}).get('Code', '')
+                if error_code == '404' or error_code == 'NoSuchKey':
+                    print(f"PDF file not found in S3: {s3_key}, will regenerate")
+                else:
+                    print(f"Error checking S3 file: {str(e)}")
+                # File doesn't exist or error occurred, continue with regeneration
+                pass
 
         # Count edited images
         edit_count = len(stored_edited_images)
@@ -132,13 +147,14 @@ def lambda_handler(event, context):
         task_env = [
             {'name': 'JOB_ID', 'value': regeneration_job_id},
             {'name': 'ORIGINAL_JOB_ID', 'value': job_id},
+            {'name': 'PDF_FILENAME', 'value': pdf_filename},  # Add missing PDF_FILENAME
             {'name': 'BUCKET_NAME', 'value': BUCKET_NAME},
             {'name': 'TABLE_NAME', 'value': TABLE_NAME},
             {'name': 'OPERATION', 'value': 'REGENERATE_PDF'},
             {'name': 'OUTPUT_FILENAME', 'value': output_filename},
             {'name': 'OUTPUT_S3_KEY', 'value': output_s3_key},
             {'name': 'SESSION_ID', 'value': session_id},
-            {'name': 'EDITED_IMAGES', 'value': json.dumps(stored_edited_images)},
+            {'name': 'EDITED_IMAGES', 'value': json.dumps(stored_edited_images, default=decimal_default)},
         ]
 
         # Update DynamoDB with regeneration job
@@ -271,7 +287,7 @@ def lambda_handler(event, context):
                 'outputFilename': output_filename,
                 'editCount': edit_count,
                 'sessionId': session_id
-            })
+            }, default=decimal_default)
         }
 
     except Exception as e:
