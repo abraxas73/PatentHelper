@@ -101,29 +101,24 @@ POST http://localhost:8000/api/v1/generate-pdf
 
 # PDF 다운로드
 GET http://localhost:8000/api/v1/download-pdf/{filename}
-
-# 이미지 조회
-GET http://localhost:8000/api/v1/images/{filename}
-
-# 서비스 상태 확인
-GET http://localhost:8000/api/v1/status
-
-# API 문서
-GET http://localhost:8000/docs (Swagger UI)
-GET http://localhost:8000/redoc (ReDoc)
 ```
 
-## 폴더 구조
+## 📂 프로젝트 구조
 
 ```
 PatentHelper/
-├── app/
-│   ├── api/          # API 엔드포인트
-│   ├── core/         # 핵심 처리 모듈
-│   ├── services/     # 비즈니스 로직
-│   ├── models/       # 데이터 모델
-│   └── config/       # 설정
-├── data/
+├── app/              # 핵심 비즈니스 로직
+│   ├── services/     # 서비스 레이어
+│   └── core/         # 코어 모듈
+├── front/            # Vue.js 프론트엔드
+│   ├── src/
+│   └── dist/         # 빌드 결과물
+├── deploy_aws/       # AWS 배포 파일
+│   ├── infrastructure/  # SAM 템플릿
+│   ├── lambda/          # Lambda 함수
+│   ├── ecs-extractor/   # ECS 컨테이너
+│   └── ecs-ocr/         # OCR 컨테이너
+├── data/             # 로컬 데이터
 │   ├── input/        # 업로드된 PDF
 │   └── output/
 │       ├── images/   # 추출된 도면
@@ -132,18 +127,29 @@ PatentHelper/
 └── tests/            # 테스트
 ```
 
-## 최근 업데이트 (2025-01-15)
+## 최근 업데이트 (2025-09-19)
 
-### 이미지 편집 기능 개선
+### 도면 인식 개선
+- **"도 N" 형식 지원**: "도 1", "도 2" 등 띄어쓰기가 있는 도면 번호 패턴 인식 추가
+- **도면 추출 정확도 향상**: 다양한 특허 문서 형식에 대한 호환성 개선
+- **텍스트 분석 강화**: 도면 설명 텍스트 패턴 매칭 알고리즘 개선
+
+### 이미지 편집 기능 개선 (2025-01-15)
 - **다중 이미지 편집 지원**: 각 도면별로 독립적인 편집 내용 저장
 - **편집 내용 영구 저장**: S3에 저장되어 새로고침 후에도 유지
 - **Fabric.js 통합**: 도형, 텍스트, 화살표 등 다양한 편집 도구 제공
 - **텍스트 편집 버그 수정**: 백스페이스 키 동작 정상화
 
-### CORS 및 API 안정성 개선
+### CORS 및 API 안정성 개선 (2025-01-15)
 - **Lambda 함수 CORS 설정**: save-edited-image, regenerate-pdf 엔드포인트
 - **ECS 컨테이너 호환성**: 컨테이너 이름 불일치 문제 해결
 - **CloudFront URL 처리**: 편집된 이미지 접근 경로 최적화
+
+### 도면 어노테이션 최적화 (2025-08-24)
+- **왼쪽 라벨 영역 최적화**: 영역 10% 축소, 화살표 길이 15px로 단축
+- **오른쪽 라벨 영역 확장**: 원본 이미지 너비의 10% 추가 확장으로 라벨 잘림 방지
+- **상단 텍스트 자동 제거**: 라벨링 후 상단 텍스트 영역 자동 크롭 처리
+- **좌우 비대칭 확장**: 라벨 위치에 따른 최적화된 공간 활용
 
 ## 사용 예시
 
@@ -153,36 +159,26 @@ import requests
 # PDF 업로드 및 처리
 with open("patent.pdf", "rb") as f:
     response = requests.post(
-        "http://localhost:8000/api/v1/process",
+        "https://api-url/upload",
         files={"file": f}
     )
-    
-result = response.json()
-print(f"추출된 이미지: {len(result['extracted_images'])}개")
-print(f"발견된 번호-명칭 매핑: {len(result['number_mappings'])}개")
+    job_id = response.json()["jobId"]
+
+# 상태 확인
+status = requests.get(f"https://api-url/status/{job_id}")
+print(status.json())
+
+# 결과 조회
+if status.json()["status"] == "completed":
+    results = requests.get(f"https://api-url/result/{job_id}")
+    annotated_images = results.json()["annotatedImages"]
 ```
 
-## 🚀 배포 및 인프라
-
-### 프로덕션 환경 (AWS)
-- **프론트엔드**: CloudFront + S3 정적 호스팅
-- **백엔드**: API Gateway + Lambda Functions
-- **처리엔진**: ECS Fargate (on-demand)
-- **저장소**: S3 (파일) + DynamoDB (메타데이터)
-- **모니터링**: CloudWatch Logs
-
-#### AWS 배포 명령어
-```bash
-# 전체 인프라 배포
-cd deploy_aws
-./deploy.sh
-
-# 프론트엔드만 업데이트
-./update-frontend.sh
-
-# Lambda 함수만 업데이트
-./update-lambda.sh
-```
+## 🔧 기술 스택
+- **백엔드**: Python 3.12, FastAPI, EasyOCR
+- **프론트엔드**: Vue.js 3, Vite, Axios
+- **클라우드**: AWS Lambda, ECS Fargate, S3, DynamoDB, CloudFront
+- **AI/ML**: PyTorch, OpenCV, PIL
 
 
 ### 📊 성능 및 비용 최적화
@@ -211,10 +207,8 @@ python main.py       # 백엔드 개발 서버
 
 # AWS 리소스 검증
 cd deploy_aws
-./validate.sh        # CloudFormation 템플릿 검증
-
-# 로그 확인
-aws logs tail /aws/lambda/patent-helper-upload --follow
+./validate-cloudfront.sh  # CloudFront 설정 확인
+./update-lambda.sh        # Lambda만 업데이트 (권장)
 ```
 
 ### 🌐 서비스 URL
@@ -248,68 +242,26 @@ aws logs tail /aws/lambda/patent-helper-upload --follow
 
 ### 🔧 기술적 개선
 - **한국어 텍스트 렌더링**: PIL 'latin-1' 인코딩 오류 완전 해결
-- **FontManager 시스템**: 유니코드 폰트 자동 선택 및 캐시 관리
-- **에러 핸들링**: 상세한 단계별 진행 상황 및 오류 메시지
-- **성능 최적화**: ECS 직접 호출로 90-120초 → 즉시 시작
+- **스트리밍 업로드**: S3 presigned URL로 대용량 파일 처리
+- **메모리 최적화**: Lambda 메모리 10GB, 타임아웃 15분 설정
+- **로깅 시스템**: CloudWatch 통합 상세 로깅
 
-### 🎨 도면 처리 최적화 (2025.01)
-- **스마트 어노테이션 개선**:
-  - 도면 확장 영역을 라벨 크기에 맞춰 자동 조정
-  - 화살표 길이 최적화 (30px)로 깔끔한 연결선
-  - 상하 여백 130px 추가로 라벨 짤림 완전 방지
-  - 오른쪽 라벨 위치 자동 계산으로 캔버스 내 완전 표시
-- **정밀한 도면 영역 추출**:
-  - 실제 그래픽 요소 분석으로 도면 영역만 크롭
-  - 상하 여백 80px로 대폭 증가하여 잘림 완전 방지
-  - 좌표 키 처리 개선 (top/bottom, y0/y1 호환)
-  - 라벨링 후 재크롭으로 최적 크기 자동 조정
-- **텍스트/도면 구분 강화**:
-  - 첫 페이지 상단 텍스트 블록 자동 감지 및 제외
-  - 숫자 및 짧은 라벨 비율 분석
-  - 평균 단어 길이로 도면 라벨 판별
-  - 중요 사각형 개수로 도면 판단 (50px 이상)
-- **스마트 후처리**:
-  - 라벨링 완료 후 실제 콘텐츠 영역만 재크롭
-  - 모든 라벨이 포함되도록 자동 경계 계산
-  - 불필요한 여백 제거로 깔끔한 결과물
+## 🤝 기여하기
 
-### 📈 성능 지표
-- **처리 시간**: 평균 30-60초 (이전 2-3분)
-- **사용자 경험**: 실시간 진행률 표시
-- **안정성**: 한국어 텍스트 100% 호환
-- **확장성**: AWS 서버리스로 무제한 동시 처리
+1. Fork 프로젝트
+2. Feature 브랜치 생성 (`git checkout -b feature/AmazingFeature`)
+3. 변경사항 커밋 (`git commit -m 'Add some AmazingFeature'`)
+4. 브랜치에 Push (`git push origin feature/AmazingFeature`)
+5. Pull Request 생성
 
-## 🛠 기술 스택 상세
+## 📄 라이선스
 
-### Frontend
-- **Vue.js 3**: Composition API + `<script setup>`
-- **Vue Router**: SPA 라우팅
-- **Axios**: HTTP 클라이언트
-- **Vite**: 빠른 개발 빌드 도구
+MIT 라이선스 - [LICENSE](LICENSE) 파일 참조
 
-### Backend
-- **AWS Lambda**: 서버리스 API (Node.js 18.x)
-- **ECS Fargate**: 컨테이너 기반 처리 (Python 3.12)
-- **S3**: 파일 저장소 + presigned URL
-- **DynamoDB**: NoSQL 메타데이터 저장
+## 📧 문의
 
-### AI/ML Processing
-- **EasyOCR**: 한국어/영어 OCR 인식
-- **OpenCV**: 이미지 처리 및 분석
-- **Pillow + FontManager**: 한국어 텍스트 렌더링
-- **pypdfium2**: PDF 파싱 및 이미지 추출
-
-### DevOps
-- **GitHub Actions**: CI/CD 자동화
-- **CloudFormation**: 인프라스트럭처 as Code
-- **Docker**: 컨테이너 환경 통일
-- **CloudWatch**: 로깅 및 모니터링
-
-## 📞 지원 및 문의
-
-- **이슈 리포팅**: GitHub Issues
-- **기술 문의**: [이메일 주소 또는 연락처]
+프로젝트 관련 문의사항은 이슈 트래커를 이용해 주세요.
 
 ---
 
-**PatentHelper**는 특허 문서 처리의 효율성을 혁신적으로 개선하는 AI 기반 솔루션입니다. 🚀
+**Made with ❤️ for Patent Engineers**

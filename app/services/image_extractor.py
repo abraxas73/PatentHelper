@@ -111,7 +111,7 @@ class ImageExtractor:
             
             # Pattern for figure numbers (도 1, 도면 1, Fig. 1, Figure 1, etc.)
             patterns = [
-                r'도\s*(\d+)',
+                r'도\s*(\d+)',          # "도 1", "도 2" 등
                 r'도면\s*(\d+)',
                 r'[Ff]ig\.?\s*(\d+)',
                 r'[Ff]igure\s*(\d+)',
