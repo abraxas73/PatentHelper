@@ -169,33 +169,56 @@ class PDFProcessor:
         return images
 
     def _is_drawing_page(self, page) -> bool:
-        """Check if page contains a drawing by looking for various drawing patterns"""
+        """Check if page contains a drawing by looking for standalone drawing patterns"""
         text = page.extract_text() or ""
+
+        # Split text into lines for line-by-line checking
+        lines = text.split('\n')
 
         # Multiple patterns to find drawings
         import re
         patterns = [
-            r'도면\s*\d+',      # "도면1", "도면 1"
-            r'도\s*\d+',        # "도1", "도 1"
-            r'도\d+',           # "도1" (붙어있는 경우)
-            r'\[도\s*\d+\]',    # "[도1]", "[도 1]"
-            r'【도\s*\d+】',    # "【도1】", "【도 1】"
-            r'제\s*\d+\s*도',   # "제1도", "제 1 도"
+            r'^\s*도면\s*\d+\s*$',      # "도면1", "도면 1" (standalone)
+            r'^\s*도\s*\d+\s*$',        # "도1", "도 1" (standalone)
+            r'^\s*도\d+\s*$',           # "도1" (붙어있는 경우, standalone)
+            r'^\s*\[도\s*\d+\]\s*$',    # "[도1]", "[도 1]" (standalone)
+            r'^\s*【도\s*\d+】\s*$',    # "【도1】", "【도 1】" (standalone)
+            r'^\s*제\s*\d+\s*도\s*$',   # "제1도", "제 1 도" (standalone)
         ]
 
-        # Check if any pattern exists in the text
+        # Check if any pattern exists as a standalone line
         has_drawing_pattern = False
         matched_pattern = None
-        for pattern in patterns:
-            if re.search(pattern, text):
-                has_drawing_pattern = True
-                matched_pattern = pattern
-                break
 
-        if has_drawing_pattern:
-            logger.info(f"Page identified as drawing - found pattern: {matched_pattern}")
+        for line in lines:
+            line = line.strip()
+            if not line:  # Skip empty lines
+                continue
 
-        return has_drawing_pattern
+            for pattern in patterns:
+                if re.match(pattern, line):
+                    has_drawing_pattern = True
+                    matched_pattern = f"{pattern} (line: {line})"
+                    logger.info(f"Page identified as drawing - found standalone pattern: {matched_pattern}")
+                    return True
+
+        # Also check if the page contains very little text but matches the pattern
+        # This handles cases where drawing number might be the only text on the page
+        if len(lines) <= 5:  # Very few lines on the page
+            simple_patterns = [
+                r'도면\s*\d+',
+                r'도\s*\d+',
+                r'도\d+',
+                r'\[도\s*\d+\]',
+                r'【도\s*\d+】',
+                r'제\s*\d+\s*도',
+            ]
+            for pattern in simple_patterns:
+                if re.search(pattern, text):
+                    logger.info(f"Page identified as drawing - sparse page with pattern: {pattern}")
+                    return True
+
+        return False
 
     def _find_drawing_area(self, page) -> tuple:
         """Find the main drawing area, excluding text-heavy regions"""
