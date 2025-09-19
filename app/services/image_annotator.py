@@ -1027,7 +1027,8 @@ class ImageAnnotator:
     def batch_annotate(self,
                       extracted_images: List[Dict],
                       all_mappings: Dict[str, str],
-                      numbered_regions_by_image: Dict[str, List[Dict]]) -> List[Path]:
+                      numbered_regions_by_image: Dict[str, List[Dict]],
+                      rotation_status_by_image: Dict[str, bool] = None) -> List[Path]:
         
         annotated_paths = []
         logger.info(f"batch_annotate called with {len(extracted_images)} images")
@@ -1060,7 +1061,14 @@ class ImageAnnotator:
                     original_dims = (img_info['original_width'], img_info['original_height'])
                 
                 logger.info(f"Starting annotation for {image_path} with {len(regions)} regions")
-                
+
+                # Check if this image is rotated
+                is_rotated = False
+                if rotation_status_by_image and image_path in rotation_status_by_image:
+                    is_rotated = rotation_status_by_image[image_path]
+                    if is_rotated:
+                        logger.info(f"Image {image_path} is marked as rotated")
+
                 try:
                     # Annotate
                     annotated_path = self.annotate_image(
@@ -1068,7 +1076,8 @@ class ImageAnnotator:
                         regions,
                         all_mappings,
                         output_filename,
-                        original_dims
+                        original_dims,
+                        is_rotated=is_rotated
                     )
                     
                     annotated_paths.append(annotated_path)
