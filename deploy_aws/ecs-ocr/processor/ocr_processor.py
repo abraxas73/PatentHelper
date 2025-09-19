@@ -124,15 +124,41 @@ def process_with_ocr(job_id, pdf_filename):
         
         extracted_images = []
         for img_info in extracted_images_s3:
-            local_path = temp_dir / os.path.basename(img_info['file_path'])
-            s3.download_file(BUCKET_NAME, img_info['file_path'], str(local_path))
-            
+            # Handle DynamoDB type annotations if present
+            if isinstance(img_info, dict):
+                # Check if it's a DynamoDB Map structure
+                if 'M' in img_info:
+                    # Extract from DynamoDB Map format
+                    map_data = img_info['M']
+                    file_path = map_data.get('file_path', {}).get('S') if 'file_path' in map_data else None
+                    filename = map_data.get('filename', {}).get('S') if 'filename' in map_data else None
+                    width = int(map_data.get('width', {}).get('N')) if 'width' in map_data and 'N' in map_data['width'] else None
+                    height = int(map_data.get('height', {}).get('N')) if 'height' in map_data and 'N' in map_data['height'] else None
+                    page_num = int(map_data.get('page_num', {}).get('N')) if 'page_num' in map_data and 'N' in map_data['page_num'] else None
+                else:
+                    # Regular dict format (from boto3 resource API)
+                    file_path = img_info.get('file_path')
+                    filename = img_info.get('filename')
+                    width = img_info.get('width')
+                    height = img_info.get('height')
+                    page_num = img_info.get('page_num')
+            else:
+                print(f"Warning: unexpected img_info type: {type(img_info)}")
+                continue
+
+            if not file_path:
+                print(f"Warning: no file_path found in img_info: {img_info}")
+                continue
+
+            local_path = temp_dir / os.path.basename(file_path)
+            s3.download_file(BUCKET_NAME, file_path, str(local_path))
+
             extracted_images.append({
                 'file_path': str(local_path),
-                'filename': img_info['filename'],
-                'width': img_info.get('width'),
-                'height': img_info.get('height'),
-                'page_num': img_info.get('page_num')
+                'filename': filename,
+                'width': width,
+                'height': height,
+                'page_num': page_num
             })
         
         # Perform OCR to find numbered regions

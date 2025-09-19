@@ -67,34 +67,140 @@ def lambda_handler(event, context):
         annotated_images = []
         
         if 'extractedImages' in item and item['extractedImages']:
-            for img_key in item['extractedImages']:
+            # Handle DynamoDB List type wrapper
+            images_data = item['extractedImages']
+            if isinstance(images_data, dict) and 'L' in images_data:
+                images_data = images_data['L']
+
+            for img_data in images_data:
                 try:
-                    # Use CloudFront URL with the documents bucket path
-                    # CloudFront is configured to serve /results/* from documents bucket
-                    url = f"{CLOUDFRONT_DOMAIN}/{img_key}"
-                    
-                    extracted_images.append({
-                        'key': img_key,
-                        'url': url,
-                        'filename': img_key.split('/')[-1]
-                    })
+                    # Handle both string and dict formats
+                    if isinstance(img_data, str):
+                        # Old format: simple string
+                        img_key = img_data
+                        url = f"{CLOUDFRONT_DOMAIN}/{img_key}"
+                        extracted_images.append({
+                            'key': img_key,
+                            'url': url,
+                            'filename': img_key.split('/')[-1]
+                        })
+                    else:
+                        # New format: dictionary with metadata
+                        # Extract file_path from various possible structures
+                        img_key = None
+                        filename = None
+                        width = None
+                        height = None
+                        page_num = None
+                        bbox = None
+
+                        # Check if it's a direct dict or a DynamoDB Map structure
+                        if 'file_path' in img_data:
+                            # Direct dict format
+                            img_key = img_data.get('file_path')
+                            filename = img_data.get('filename')
+                            width = img_data.get('width')
+                            height = img_data.get('height')
+                            page_num = img_data.get('page_num')
+                            bbox = img_data.get('bbox')
+                        elif 'S' in img_data:
+                            # Simple DynamoDB string format
+                            img_key = img_data.get('S')
+                        elif 'M' in img_data:
+                            # DynamoDB Map format - this shouldn't happen but handle it
+                            map_data = img_data.get('M', {})
+                            if 'file_path' in map_data and 'S' in map_data['file_path']:
+                                img_key = map_data['file_path']['S']
+                            if 'filename' in map_data and 'S' in map_data['filename']:
+                                filename = map_data['filename']['S']
+                            if 'width' in map_data and 'N' in map_data['width']:
+                                width = int(map_data['width']['N'])
+                            if 'height' in map_data and 'N' in map_data['height']:
+                                height = int(map_data['height']['N'])
+                            if 'page_num' in map_data and 'N' in map_data['page_num']:
+                                page_num = int(map_data['page_num']['N'])
+                            if 'bbox' in map_data and 'L' in map_data['bbox']:
+                                bbox = [float(coord.get('N', 0)) for coord in map_data['bbox']['L']]
+
+                        if img_key:
+                            url = f"{CLOUDFRONT_DOMAIN}/{img_key}"
+                            extracted_images.append({
+                                'key': img_key,
+                                'url': url,
+                                'filename': filename or img_key.split('/')[-1],
+                                'width': width,
+                                'height': height,
+                                'page_num': page_num,
+                                'bbox': bbox
+                            })
                 except Exception as e:
-                    print(f"Error creating CloudFront URL for {img_key}: {str(e)}")
+                    print(f"Error creating CloudFront URL for {img_data}: {str(e)}")
                     continue
         
         if 'annotatedImages' in item and item['annotatedImages']:
-            for img_key in item['annotatedImages']:
-                try:
-                    # Use CloudFront URL with the documents bucket path
-                    url = f"{CLOUDFRONT_DOMAIN}/{img_key}"
+            # Handle DynamoDB List type wrapper
+            images_data = item['annotatedImages']
+            if isinstance(images_data, dict) and 'L' in images_data:
+                images_data = images_data['L']
 
-                    annotated_images.append({
-                        'key': img_key,
-                        'url': url,
-                        'filename': img_key.split('/')[-1]
-                    })
+            for img_data in images_data:
+                try:
+                    # Handle both string and dict formats
+                    if isinstance(img_data, str):
+                        # Old format: simple string
+                        img_key = img_data
+                        url = f"{CLOUDFRONT_DOMAIN}/{img_key}"
+                        annotated_images.append({
+                            'key': img_key,
+                            'url': url,
+                            'filename': img_key.split('/')[-1]
+                        })
+                    else:
+                        # New format: dictionary with metadata
+                        # Extract file_path from various possible structures
+                        img_key = None
+                        filename = None
+                        width = None
+                        height = None
+                        page_num = None
+
+                        # Check if it's a direct dict or a DynamoDB Map structure
+                        if 'file_path' in img_data:
+                            # Direct dict format
+                            img_key = img_data.get('file_path')
+                            filename = img_data.get('filename')
+                            width = img_data.get('width')
+                            height = img_data.get('height')
+                            page_num = img_data.get('page_num')
+                        elif 'S' in img_data:
+                            # Simple DynamoDB string format
+                            img_key = img_data.get('S')
+                        elif 'M' in img_data:
+                            # DynamoDB Map format - this shouldn't happen but handle it
+                            map_data = img_data.get('M', {})
+                            if 'file_path' in map_data and 'S' in map_data['file_path']:
+                                img_key = map_data['file_path']['S']
+                            if 'filename' in map_data and 'S' in map_data['filename']:
+                                filename = map_data['filename']['S']
+                            if 'width' in map_data and 'N' in map_data['width']:
+                                width = int(map_data['width']['N'])
+                            if 'height' in map_data and 'N' in map_data['height']:
+                                height = int(map_data['height']['N'])
+                            if 'page_num' in map_data and 'N' in map_data['page_num']:
+                                page_num = int(map_data['page_num']['N'])
+
+                        if img_key:
+                            url = f"{CLOUDFRONT_DOMAIN}/{img_key}"
+                            annotated_images.append({
+                                'key': img_key,
+                                'url': url,
+                                'filename': filename or img_key.split('/')[-1],
+                                'width': width,
+                                'height': height,
+                                'page_num': page_num
+                            })
                 except Exception as e:
-                    print(f"Error creating CloudFront URL for {img_key}: {str(e)}")
+                    print(f"Error creating CloudFront URL for {img_data}: {str(e)}")
                     continue
 
         # Process edited images to include full URLs
