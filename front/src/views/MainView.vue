@@ -1302,6 +1302,11 @@ export default {
     }
 
     const getImageUrl = (imagePath) => {
+      // Handle object with url property (from Lambda response)
+      if (typeof imagePath === 'object' && imagePath.url) {
+        return imagePath.url
+      }
+
       // For local environment
       if (config.isLocal) {
         // Handle object with file_path property
@@ -1310,14 +1315,14 @@ export default {
           const filename = imagePath.file_path.split('/').pop()
           return `${config.API_URL}/images/${filename}`
         }
-        
+
         // Handle string path
         if (typeof imagePath === 'string') {
           // Extract just the filename from the full path
           const filename = imagePath.split('/').pop()
           return `${config.API_URL}/images/${filename}`
         }
-      } 
+      }
       // For AWS environment
       else {
         // Handle object with file_path property
@@ -1325,7 +1330,7 @@ export default {
           // For S3 paths like "results/{jobId}/extracted/filename.png"
           return `${config.API_URL}/images/${imagePath.file_path}`
         }
-        
+
         // Handle string path
         if (typeof imagePath === 'string') {
           // If it's already a full S3 path
@@ -1337,7 +1342,7 @@ export default {
           return `${config.API_URL}/images/${filename}`
         }
       }
-      
+
       return imagePath
     }
 
