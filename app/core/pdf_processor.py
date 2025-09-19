@@ -43,7 +43,10 @@ class PDFProcessor:
         # Check if this page is a drawing using simple pattern
         if not self._is_drawing_page(plumber_page):
             logger.debug(f"Page {page_num + 1} is not a drawing page, skipping image extraction")
+            print(f"DEBUG: Page {page_num + 1} - Not a drawing page")
             return images
+
+        print(f"DEBUG: Page {page_num + 1} - Identified as drawing page, extracting...")
 
         # Render the entire page as an image
         pdfium_page = self.pdfium_doc[page_num]
@@ -98,6 +101,9 @@ class PDFProcessor:
                 logger.info(f"Extracted and cropped drawing from page {page_num + 1}: {cropped_image.width}x{cropped_image.height}")
         except Exception as e:
             logger.warning(f"Failed to extract images from page {page_num}: {e}")
+            print(f"ERROR: Failed to extract from page {page_num + 1}: {e}")
+            import traceback
+            traceback.print_exc()
 
         return images
 

@@ -100,12 +100,22 @@ def extract_mappings(job_id, s3_key):
             update_job_status(job_id, 'PROCESSING',
                              message='도면을 추출하는 중...',
                              progress=40)
+
+            # Debug: Check pages for drawings
+            print(f"Total pages in PDF: {len(pdf_processor.plumber_doc.pages)}")
+            for i in range(min(25, len(pdf_processor.plumber_doc.pages))):
+                page = pdf_processor.plumber_doc.pages[i]
+                is_drawing = pdf_processor._is_drawing_page(page)
+                if is_drawing:
+                    print(f"Page {i+1} identified as drawing page")
+
             raw_images = pdf_processor.extract_all_images()
-            
+            print(f"Extracted {len(raw_images)} raw images from PDF")
+
             # Initialize services
             output_dir = Path(f"/tmp/{job_id}_output")
             output_dir.mkdir(exist_ok=True)
-            
+
             # Simple image saving without OCR
             saved_images = []
             for idx, img_data in enumerate(raw_images):
