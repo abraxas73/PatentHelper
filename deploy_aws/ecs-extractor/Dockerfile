@@ -49,4 +49,5 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONIOENCODING=utf-8
 
 # Run the extractor
-CMD ["python", "-u", "processor/extractor.py"]# Force rebuild Fri Sep 19 13:44:37 KST 2025
+CMD ["python", "-u", "processor/extractor.py"]
+# Force rebuild Fri Sep 19 13:44:37 KST 2025
