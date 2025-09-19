@@ -143,7 +143,7 @@ class ImageExtractor:
     
     def find_numbered_regions_with_rotation(self, image_path: str, try_rotation: bool = True) -> Tuple[List[Dict[str, Any]], bool]:
         """
-        Find numbered regions in the image, trying rotation if necessary
+        Find numbered regions in the image, trying both +90 and -90 degree rotations if necessary
         Returns: (numbered_regions, is_rotated)
         """
         # First try: original orientation
@@ -153,60 +153,86 @@ class ImageExtractor:
         if len(regions) >= 3 or not try_rotation:  # Assume at least 3 numbers for a valid drawing
             return regions, False
 
-        logger.info(f"Found only {len(regions)} regions, trying 90-degree rotation")
+        logger.info(f"Found only {len(regions)} regions, trying rotations (+90° and -90°)")
 
-        # Second try: rotate 90 degrees and retry
+        # Try both +90 and -90 degree rotations
         try:
             img = cv2.imread(image_path)
             if img is None:
                 return regions, False
 
-            # Rotate 90 degrees counterclockwise
-            rotated_img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            original_height, original_width = img.shape[:2]
+            best_regions = regions
+            best_rotation = None
 
-            # Save rotated image temporarily
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
-                tmp_path = tmp_file.name
-                cv2.imwrite(tmp_path, rotated_img)
+            # Try both rotations
+            rotations = [
+                (cv2.ROTATE_90_CLOCKWISE, "+90°", "clockwise"),
+                (cv2.ROTATE_90_COUNTERCLOCKWISE, "-90°", "counterclockwise")
+            ]
 
-            try:
-                # Try OCR on rotated image
-                rotated_regions = self.find_numbered_regions(tmp_path)
+            for rotation_flag, rotation_name, rotation_desc in rotations:
+                logger.info(f"Trying {rotation_name} rotation ({rotation_desc})")
 
-                if len(rotated_regions) > len(regions):
-                    logger.info(f"Rotation improved detection: {len(regions)} -> {len(rotated_regions)} regions")
+                # Rotate image
+                rotated_img = cv2.rotate(img, rotation_flag)
 
-                    # Adjust coordinates for rotation (counterclockwise 90 degrees)
-                    original_height = img.shape[0]
-                    adjusted_regions = []
-                    for region in rotated_regions:
-                        # Transform coordinates back to original orientation
-                        # For 90-degree counterclockwise rotation:
+                # Save rotated image temporarily
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+                    tmp_path = tmp_file.name
+                    cv2.imwrite(tmp_path, rotated_img)
+
+                try:
+                    # Try OCR on rotated image
+                    rotated_regions = self.find_numbered_regions(tmp_path)
+                    logger.info(f"Found {len(rotated_regions)} regions with {rotation_name} rotation")
+
+                    if len(rotated_regions) > len(best_regions):
+                        best_regions = rotated_regions
+                        best_rotation = (rotation_flag, rotation_name)
+                        logger.info(f"{rotation_name} rotation improved detection: {len(regions)} -> {len(rotated_regions)} regions")
+
+                finally:
+                    # Clean up temporary file
+                    import os
+                    if os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
+
+            # If rotation improved detection, adjust coordinates
+            if best_rotation:
+                rotation_flag, rotation_name = best_rotation
+                logger.info(f"Using {rotation_name} rotation for final detection")
+
+                adjusted_regions = []
+                for region in best_regions:
+                    old_center_x = region['center']['x'] if 'center' in region else region.get('center_x', 0)
+                    old_center_y = region['center']['y'] if 'center' in region else region.get('center_y', 0)
+
+                    if rotation_flag == cv2.ROTATE_90_CLOCKWISE:
+                        # For +90° clockwise rotation:
                         # new_x = old_y
-                        # new_y = height - old_x
-                        old_center_x = region['center_x']
-                        old_center_y = region['center_y']
-
+                        # new_y = (original_width - old_x)
                         new_center_x = old_center_y
                         new_center_y = original_height - old_center_x
+                    else:  # ROTATE_90_COUNTERCLOCKWISE
+                        # For -90° counterclockwise rotation:
+                        # new_x = (original_height - old_y)
+                        # new_y = old_x
+                        new_center_x = original_width - old_center_y
+                        new_center_y = old_center_x
 
-                        adjusted_region = region.copy()
-                        adjusted_region['center_x'] = new_center_x
-                        adjusted_region['center_y'] = new_center_y
-                        adjusted_region['is_rotated'] = True
-                        adjusted_regions.append(adjusted_region)
+                    adjusted_region = region.copy()
+                    adjusted_region['center_x'] = new_center_x
+                    adjusted_region['center_y'] = new_center_y
+                    adjusted_region['is_rotated'] = True
+                    adjusted_region['rotation_type'] = rotation_name
+                    adjusted_regions.append(adjusted_region)
 
-                    return adjusted_regions, True
-                else:
-                    logger.info(f"Rotation did not improve detection, keeping original")
-                    return regions, False
-
-            finally:
-                # Clean up temporary file
-                import os
-                if os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
+                return adjusted_regions, True
+            else:
+                logger.info(f"No rotation improved detection, keeping original")
+                return regions, False
 
         except Exception as e:
             logger.error(f"Error trying rotation: {e}")

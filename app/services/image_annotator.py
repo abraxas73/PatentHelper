@@ -299,24 +299,38 @@ class ImageAnnotator:
                       output_filename: str,
                       original_dimensions: Optional[Tuple[int, int]] = None,
                       is_rotated: bool = False) -> Path:
-        
+
         # Correct OCR misrecognitions
         numbered_regions = self.correct_ocr_misrecognition(numbered_regions, number_mappings)
-        
+
         # Performance optimization: limit number of labels if too many
         MAX_LABELS_PER_SIDE = 12  # Maximum labels per side to prevent overcrowding
         if len(numbered_regions) > MAX_LABELS_PER_SIDE * 2:
             logger.warning(f"Too many regions ({len(numbered_regions)}), limiting to {MAX_LABELS_PER_SIDE * 2} most confident")
             # Sort by confidence and take top regions
             numbered_regions = sorted(numbered_regions, key=lambda r: r.get('confidence', 0), reverse=True)[:MAX_LABELS_PER_SIDE * 2]
-        
+
         # Load original image
         original_img = Image.open(image_path)
 
-        # If image was rotated for OCR, rotate it for annotation
+        # If image was rotated for OCR, rotate it back for annotation
+        # is_rotated can be bool or string with rotation type
         if is_rotated:
-            logger.info(f"Rotating image 90 degrees for annotation (was rotated for OCR)")
-            original_img = original_img.rotate(-90, expand=True)  # Rotate 90 degrees clockwise
+            if isinstance(is_rotated, str):
+                # Specific rotation type (e.g., "+90°" or "-90°")
+                if "+90" in is_rotated:
+                    logger.info(f"Rotating image -90 degrees to compensate for +90° OCR rotation")
+                    original_img = original_img.rotate(-90, expand=True)  # Undo +90 clockwise
+                elif "-90" in is_rotated:
+                    logger.info(f"Rotating image +90 degrees to compensate for -90° OCR rotation")
+                    original_img = original_img.rotate(90, expand=True)  # Undo -90 counterclockwise
+                else:
+                    logger.info(f"Rotating image for annotation (rotation type: {is_rotated})")
+                    original_img = original_img.rotate(-90, expand=True)  # Default
+            else:
+                # Legacy bool support
+                logger.info(f"Rotating image 90 degrees for annotation (was rotated for OCR)")
+                original_img = original_img.rotate(-90, expand=True)  # Rotate 90 degrees clockwise
 
         original_width, original_height = original_img.size
         

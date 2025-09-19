@@ -177,17 +177,25 @@ def process_with_ocr(job_id, pdf_filename):
 
             # Find numbered regions with rotation detection
             regions, is_rotated = extractor.find_numbered_regions_with_rotation(img_info['file_path'])
-            rotation_status_by_image[img_info['file_path']] = is_rotated
 
-            if is_rotated:
-                print(f"Image {drawing_name} was rotated for better OCR detection")
+            # Store rotation status - could be bool or detailed info
+            rotation_info = is_rotated
+            if is_rotated and regions and len(regions) > 0:
+                # Check if we have rotation_type in the regions
+                if 'rotation_type' in regions[0]:
+                    rotation_info = regions[0]['rotation_type']  # e.g., "+90°" or "-90°"
+                    print(f"Image {drawing_name} was rotated {rotation_info} for better OCR detection")
+                else:
+                    print(f"Image {drawing_name} was rotated for better OCR detection")
+
+            rotation_status_by_image[img_info['file_path']] = rotation_info
 
             if regions:
                 # Filter regions based on selected mappings
                 filtered_regions = [r for r in regions if r['number'] in selected_mappings]
                 if filtered_regions:
                     numbered_regions_by_image[img_info['file_path']] = filtered_regions
-                    print(f"Found {len(filtered_regions)} selected numbers in {drawing_name} (rotated: {is_rotated})")
+                    print(f"Found {len(filtered_regions)} selected numbers in {drawing_name} (rotated: {rotation_info})")
 
         # Annotate images with selected mappings
         update_job_status(job_id, 'PROCESSING',
