@@ -119,7 +119,6 @@ def process_with_ocr(job_id, pdf_filename):
                          progress=15)
         
         temp_dir = Path(tempfile.mkdtemp())
-        image_extractor = ImageExtractor(temp_dir)
         image_annotator = ImageAnnotator(Path(tempfile.mkdtemp()))
         
         extracted_images = []
@@ -161,35 +160,46 @@ def process_with_ocr(job_id, pdf_filename):
                 'page_num': page_num
             })
         
-        # Perform OCR to find numbered regions
+        # Perform OCR to find numbered regions (with rotation detection)
         update_job_status(job_id, 'PROCESSING',
                          message='OCR로 번호를 감지하는 중...',
                          progress=30)
-        
+
         numbered_regions_by_image = {}
+        rotation_status_by_image = {}  # Track which images are rotated
+        extractor = ImageExtractor(temp_dir)  # Use extractor instance
+
         for idx, img_info in enumerate(extracted_images, 1):
             drawing_name = Path(img_info['file_path']).stem
             update_job_status(job_id, 'PROCESSING',
                              message=f'{drawing_name} OCR 처리 중...',
                              progress=30 + int((idx / len(extracted_images)) * 30))
-            
-            regions = image_extractor.find_numbered_regions(img_info['file_path'])
+
+            # Find numbered regions with rotation detection
+            regions, is_rotated = extractor.find_numbered_regions_with_rotation(img_info['file_path'])
+            rotation_status_by_image[img_info['file_path']] = is_rotated
+
+            if is_rotated:
+                print(f"Image {drawing_name} was rotated for better OCR detection")
+
             if regions:
                 # Filter regions based on selected mappings
                 filtered_regions = [r for r in regions if r['number'] in selected_mappings]
                 if filtered_regions:
                     numbered_regions_by_image[img_info['file_path']] = filtered_regions
-                    print(f"Found {len(filtered_regions)} selected numbers in {drawing_name}")
-        
+                    print(f"Found {len(filtered_regions)} selected numbers in {drawing_name} (rotated: {is_rotated})")
+
         # Annotate images with selected mappings
         update_job_status(job_id, 'PROCESSING',
                          message='어노테이션을 추가하는 중...',
                          progress=60)
-        
+
+        # Pass rotation status to batch_annotate
         annotated_paths = image_annotator.batch_annotate(
             extracted_images,
             selected_mappings,
-            numbered_regions_by_image
+            numbered_regions_by_image,
+            rotation_status_by_image  # Pass rotation status
         )
         
         # Upload annotated images to S3

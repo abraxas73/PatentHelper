@@ -292,12 +292,13 @@ class ImageAnnotator:
 
         return drawing_regions
 
-    def annotate_image(self, 
+    def annotate_image(self,
                       image_path: str,
                       numbered_regions: List[Dict],
                       number_mappings: Dict[str, str],
                       output_filename: str,
-                      original_dimensions: Optional[Tuple[int, int]] = None) -> Path:
+                      original_dimensions: Optional[Tuple[int, int]] = None,
+                      is_rotated: bool = False) -> Path:
         
         # Correct OCR misrecognitions
         numbered_regions = self.correct_ocr_misrecognition(numbered_regions, number_mappings)
@@ -311,6 +312,12 @@ class ImageAnnotator:
         
         # Load original image
         original_img = Image.open(image_path)
+
+        # If image was rotated for OCR, rotate it for annotation
+        if is_rotated:
+            logger.info(f"Rotating image 90 degrees for annotation (was rotated for OCR)")
+            original_img = original_img.rotate(-90, expand=True)  # Rotate 90 degrees clockwise
+
         original_width, original_height = original_img.size
         
         # Get fonts using font manager first (needed for text measurement)
@@ -491,10 +498,15 @@ class ImageAnnotator:
             expanded_img, label_positions, numbered_regions, original_width, original_height, 
             left_expansion, right_expansion, vertical_expansion, self.debug_mode)
         
+        # If image was rotated for OCR, rotate back to original orientation
+        if is_rotated:
+            logger.info(f"Rotating annotated image back to original orientation")
+            final_img = final_img.rotate(90, expand=True)  # Rotate 90 degrees counterclockwise to restore
+
         # Save annotated image
         output_path = self.output_dir / output_filename
         final_img.save(str(output_path))
-        
+
         return output_path
     
     def _calculate_optimal_label_position(self, img: Image, center: Dict, bbox: Dict) -> Tuple[Tuple[int, int], Tuple[int, int]]:

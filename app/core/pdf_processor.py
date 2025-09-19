@@ -106,6 +106,8 @@ class PDFProcessor:
 
                 # Check if image has actual content (not all white/transparent)
                 import numpy as np
+                from scipy import stats
+
                 img_array = np.array(cropped_image)
                 print(f"DEBUG: Page {page_num + 1} image array shape: {img_array.shape}")
                 print(f"DEBUG: Page {page_num + 1} image array dtype: {img_array.dtype}")
@@ -113,10 +115,38 @@ class PDFProcessor:
                 # Check if not all pixels are white (255, 255, 255) or near white
                 if len(img_array.shape) == 3:  # RGB/RGBA image
                     non_white_pixels = np.any(img_array[:, :, :3] < 250, axis=2).sum()
+                    total_pixels = img_array.shape[0] * img_array.shape[1]
+                    # Convert to grayscale for entropy calculation
+                    gray = np.dot(img_array[:, :, :3], [0.299, 0.587, 0.114]).astype(np.uint8)
                 else:  # Grayscale
                     non_white_pixels = (img_array < 250).sum()
+                    total_pixels = img_array.shape[0] * img_array.shape[1]
+                    gray = img_array
 
-                print(f"DEBUG: Page {page_num + 1} non-white pixels: {non_white_pixels}")
+                # Calculate percentage of non-white pixels
+                non_white_ratio = non_white_pixels / total_pixels
+
+                # Calculate image entropy to detect actual content
+                # Higher entropy means more information/content
+                hist, _ = np.histogram(gray, bins=256, range=(0, 256))
+                hist = hist[hist > 0]  # Remove zero bins
+                probabilities = hist / hist.sum()
+                entropy = -np.sum(probabilities * np.log2(probabilities))
+
+                print(f"DEBUG: Page {page_num + 1} non-white pixels: {non_white_pixels} ({non_white_ratio:.2%})")
+                print(f"DEBUG: Page {page_num + 1} image entropy: {entropy:.2f}")
+
+                # Minimum thresholds for actual drawing content
+                MIN_NON_WHITE_RATIO = 0.05  # At least 5% non-white pixels
+                MIN_ENTROPY = 2.0  # Minimum entropy for meaningful content
+
+                # Check if image has sufficient content
+                has_content = non_white_ratio >= MIN_NON_WHITE_RATIO and entropy >= MIN_ENTROPY
+
+                if not has_content:
+                    logger.warning(f"Page {page_num + 1} identified as drawing but has insufficient image content (ratio: {non_white_ratio:.2%}, entropy: {entropy:.2f})")
+                    print(f"DEBUG: Page {page_num + 1} - Skipping due to insufficient content")
+                    return images
 
                 img_data = {
                     'page': page_num,
@@ -124,10 +154,12 @@ class PDFProcessor:
                     'width': cropped_image.width,
                     'height': cropped_image.height,
                     'bbox': bbox,  # Store the bbox for later use
-                    'pil_image': cropped_image
+                    'pil_image': cropped_image,
+                    'content_ratio': float(non_white_ratio),  # Store for debugging
+                    'entropy': float(entropy)  # Store for debugging
                 }
                 images.append(img_data)
-                logger.info(f"Extracted and cropped drawing from page {page_num + 1}: {cropped_image.width}x{cropped_image.height}")
+                logger.info(f"Extracted and cropped drawing from page {page_num + 1}: {cropped_image.width}x{cropped_image.height} (content: {non_white_ratio:.2%}, entropy: {entropy:.2f})")
         except Exception as e:
             logger.warning(f"Failed to extract images from page {page_num}: {e}")
             print(f"ERROR: Failed to extract from page {page_num + 1}: {e}")

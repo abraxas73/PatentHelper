@@ -141,6 +141,77 @@ class ImageExtractor:
             logger.error(f"Error detecting figure number: {e}")
             return {}
     
+    def find_numbered_regions_with_rotation(self, image_path: str, try_rotation: bool = True) -> Tuple[List[Dict[str, Any]], bool]:
+        """
+        Find numbered regions in the image, trying rotation if necessary
+        Returns: (numbered_regions, is_rotated)
+        """
+        # First try: original orientation
+        regions = self.find_numbered_regions(image_path)
+
+        # If we found enough regions or rotation is disabled, return as is
+        if len(regions) >= 3 or not try_rotation:  # Assume at least 3 numbers for a valid drawing
+            return regions, False
+
+        logger.info(f"Found only {len(regions)} regions, trying 90-degree rotation")
+
+        # Second try: rotate 90 degrees and retry
+        try:
+            img = cv2.imread(image_path)
+            if img is None:
+                return regions, False
+
+            # Rotate 90 degrees counterclockwise
+            rotated_img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+            # Save rotated image temporarily
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+                tmp_path = tmp_file.name
+                cv2.imwrite(tmp_path, rotated_img)
+
+            try:
+                # Try OCR on rotated image
+                rotated_regions = self.find_numbered_regions(tmp_path)
+
+                if len(rotated_regions) > len(regions):
+                    logger.info(f"Rotation improved detection: {len(regions)} -> {len(rotated_regions)} regions")
+
+                    # Adjust coordinates for rotation (counterclockwise 90 degrees)
+                    original_height = img.shape[0]
+                    adjusted_regions = []
+                    for region in rotated_regions:
+                        # Transform coordinates back to original orientation
+                        # For 90-degree counterclockwise rotation:
+                        # new_x = old_y
+                        # new_y = height - old_x
+                        old_center_x = region['center_x']
+                        old_center_y = region['center_y']
+
+                        new_center_x = old_center_y
+                        new_center_y = original_height - old_center_x
+
+                        adjusted_region = region.copy()
+                        adjusted_region['center_x'] = new_center_x
+                        adjusted_region['center_y'] = new_center_y
+                        adjusted_region['is_rotated'] = True
+                        adjusted_regions.append(adjusted_region)
+
+                    return adjusted_regions, True
+                else:
+                    logger.info(f"Rotation did not improve detection, keeping original")
+                    return regions, False
+
+            finally:
+                # Clean up temporary file
+                import os
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+
+        except Exception as e:
+            logger.error(f"Error trying rotation: {e}")
+            return regions, False
+
     def find_numbered_regions(self, image_path: str) -> List[Dict[str, Any]]:
         try:
             if not self._init_reader():
