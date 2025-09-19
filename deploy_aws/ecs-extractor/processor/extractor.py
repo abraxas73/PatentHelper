@@ -28,7 +28,6 @@ dynamodb = boto3.resource('dynamodb')
 
 # Environment variables
 JOB_ID = os.environ.get('JOB_ID')
-S3_KEY = os.environ.get('S3_KEY')
 BUCKET_NAME = os.environ.get('BUCKET_NAME', 'patent-helper-documents-prod')
 TABLE_NAME = os.environ.get('TABLE_NAME', 'patent-helper-jobs-prod')
 
@@ -204,20 +203,35 @@ def extract_mappings(job_id, s3_key):
 
 def main():
     """Main entry point"""
-    if not JOB_ID or not S3_KEY:
-        print("Error: JOB_ID and S3_KEY are required")
+    if not JOB_ID:
+        print("Error: JOB_ID is required")
         sys.exit(1)
-    
+
     print(f"Starting extraction job: {JOB_ID}")
-    
+
     try:
+        # Get job data from DynamoDB to fetch S3 key
+        table = dynamodb.Table(TABLE_NAME)
+        response = table.get_item(Key={'jobId': JOB_ID})
+
+        if 'Item' not in response:
+            raise ValueError(f"Job {JOB_ID} not found in DynamoDB")
+
+        job_data = response['Item']
+        s3_key = job_data.get('s3_key') or job_data.get('s3Key')
+
+        if not s3_key:
+            raise ValueError(f"No S3 key found for job {JOB_ID}")
+
+        print(f"Retrieved S3 key from DynamoDB: {s3_key}")
+
         # Update status to show container has started
-        update_job_status(JOB_ID, 'PROCESSING', 
-                        message='매핑 추출 컨테이너가 시작되었습니다', 
+        update_job_status(JOB_ID, 'PROCESSING',
+                        message='매핑 추출 컨테이너가 시작되었습니다',
                         progress=5)
-        
-        extract_mappings(JOB_ID, S3_KEY)
-        
+
+        extract_mappings(JOB_ID, s3_key)
+
         print(f"Successfully completed extraction job {JOB_ID}")
     except Exception as e:
         print(f"Fatal error in extraction job {JOB_ID}: {str(e)}")

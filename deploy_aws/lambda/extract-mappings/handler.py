@@ -78,7 +78,6 @@ def lambda_handler(event, context):
                             'name': 'extractor-processor',
                             'environment': [
                                 {'name': 'JOB_ID', 'value': job_id},
-                                {'name': 'S3_KEY', 'value': s3_key},
                                 {'name': 'BUCKET_NAME', 'value': BUCKET_NAME},
                                 {'name': 'TABLE_NAME', 'value': TABLE_NAME}
                             ]
