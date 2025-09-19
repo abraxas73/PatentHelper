@@ -93,18 +93,31 @@ class PDFProcessor:
         return images
 
     def _is_drawing_page(self, page) -> bool:
-        """Check if page contains a drawing by looking for '도면[숫자]' pattern"""
+        """Check if page contains a drawing by looking for various drawing patterns"""
         text = page.extract_text() or ""
 
-        # Simple pattern to find "도면1", "도면2", etc.
+        # Multiple patterns to find drawings
         import re
-        pattern = r'도면\s*\d+'
+        patterns = [
+            r'도면\s*\d+',      # "도면1", "도면 1"
+            r'도\s*\d+',        # "도1", "도 1"
+            r'도\d+',           # "도1" (붙어있는 경우)
+            r'\[도\s*\d+\]',    # "[도1]", "[도 1]"
+            r'【도\s*\d+】',    # "【도1】", "【도 1】"
+            r'제\s*\d+\s*도',   # "제1도", "제 1 도"
+        ]
 
-        # Check if pattern exists in the text
-        has_drawing_pattern = bool(re.search(pattern, text))
+        # Check if any pattern exists in the text
+        has_drawing_pattern = False
+        matched_pattern = None
+        for pattern in patterns:
+            if re.search(pattern, text):
+                has_drawing_pattern = True
+                matched_pattern = pattern
+                break
 
         if has_drawing_pattern:
-            logger.info(f"Page identified as drawing - found '도면[숫자]' pattern")
+            logger.info(f"Page identified as drawing - found pattern: {matched_pattern}")
 
         return has_drawing_pattern
 
