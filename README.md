@@ -187,17 +187,17 @@ if status.json()["status"] == "completed":
 - **비용 효율성**: 사용량 기반 과금 (무료 티어 활용)
 - **고가용성**: Multi-AZ 배포로 99.9% 가용성
 
-## 📝 최신 업데이트 (2025.01.16)
+## 📝 최신 업데이트 (2025.01.19)
 
-### 새로운 기능
-- ✅ **원본 PDF 다운로드**: 작업 이력에서 원본 PDF 다운로드 지원
-- ✅ **PDF 재생성 개선**: 도면이 원본 PDF의 정확한 페이지 위치에 치환
-- ✅ **상태 표시 개선**: "재생성중"/"재생성완료" 태그로 진행 상태 시각화
+### 긴급 버그 수정
+- 🐛 **DynamoDB 타입 어노테이션 처리**: boto3 resource/client API 불일치 문제 해결
+- 🔧 **도면 추출 안정화**: pypdfium2 버전 통일 및 API 호환성 처리
+- ✅ **프론트엔드 에러 수정**: `[object Object]` 표시 문제 해결
 
 ### 기술적 개선
-- 📊 파일명에서 페이지 번호 추출 로직 수정 (drawing_020 → 페이지 20)
-- 🔧 어노테이션 PDF 생성과 동일한 페이지 매핑 로직 적용
-- 🎨 CloudFront behaviors 수동 관리 문서화 (SAM deploy 주의)
+- 📊 Lambda 함수에서 DynamoDB List(L)/Map(M) 타입 래퍼 처리
+- 🔧 OCR 프로세서 extractedImages 파싱 로직 개선
+- 🎨 ECS 컨테이너 Dockerfile CMD 구문 오류 수정
 
 ### 🔧 개발자 도구
 ```bash

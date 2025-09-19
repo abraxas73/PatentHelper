@@ -323,7 +323,19 @@ GitHub에 푸시하면 GitHub Actions가 자동으로 배포
 - **어노테이션 위치 최적화**: 원본 이미지 기준 좌/우 배치
 - **크로스 브라우저 다운로드**: CORS 문제 해결, blob 변환 방식 적용
 
-### 🚀 최신 개선사항 (2025.01.16)
+### 🚀 최신 개선사항 (2025.01.19)
+1. **DynamoDB 타입 어노테이션 문제 해결**:
+   - boto3 resource API와 client API 간 데이터 형식 불일치 문제 해결
+   - Lambda 함수에서 DynamoDB List(L)/Map(M) 타입 래퍼 처리 추가
+   - OCR 프로세서에서 extractedImages 파싱 시 타입 어노테이션 처리
+   - 프론트엔드 `[object Object]` 에러 해결
+
+2. **도면 추출 안정성 향상**:
+   - pypdfium2 버전 통일 (4.25.0)으로 환경 간 일관성 확보
+   - Dockerfile CMD 구문 오류 수정
+   - pypdfium2 matrix/scale API 호환성 처리
+
+### 🚀 이전 개선사항 (2025.01.16)
 1. **PDF 재생성 페이지 매핑 버그 수정**:
    - 도면이 원본 PDF의 정확한 위치에 치환되도록 수정
    - 파일명에서 페이지 번호 추출 로직 개선 (drawing_020 → 페이지 20)
