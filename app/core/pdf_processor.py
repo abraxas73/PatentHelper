@@ -59,6 +59,7 @@ class PDFProcessor:
                 crop=(0, 0, 0, 0),
                 color_scheme=pdfium.PdfColorScheme(
                     path_fill=0xFFFFFFFF,
+                    path_stroke=0xFF000000,
                     text_fill=0xFF000000,
                     text_stroke=0xFF000000
                 )
