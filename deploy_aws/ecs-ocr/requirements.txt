@@ -1,10 +1,10 @@
 # Heavy requirements for OCR processing and PDF generation
 easyocr==1.7.0
-opencv-python==4.10.0.84
-Pillow==11.0.0
+opencv-python==4.8.1.78  # 로컬과 동일한 버전
+Pillow==10.4.0  # 로컬과 동일한 버전으로 통일
 numpy==1.26.0
 boto3==1.35.17
 reportlab==4.0.7
 pypdf==3.17.0
-pypdfium2==4.18.0
+pypdfium2==4.25.0  # 로컬과 동일한 버전으로 통일
 pydantic-settings==2.0.3

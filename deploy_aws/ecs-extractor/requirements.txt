@@ -1,5 +1,6 @@
 # Lightweight requirements for mapping extraction (no OCR/PyTorch)
-pypdfium2==4.26.0
+pypdfium2==4.25.0  # 로컬과 동일한 버전으로 통일
 pdfplumber==0.10.3
-Pillow==11.0.0
+Pillow==10.4.0  # 로컬과 동일한 버전으로 통일
+numpy==1.26.0  # 이미지 콘텐츠 검증용
 boto3==1.35.17

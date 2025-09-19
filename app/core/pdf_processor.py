@@ -66,6 +66,7 @@ class PDFProcessor:
             # Render page to PIL Image
             # Try new API first, fall back to old API if needed
             try:
+                print(f"DEBUG: Attempting to render page {page_num + 1} with matrix API")
                 pil_image = pdfium_page.render(
                     matrix=mat,
                     crop=(0, 0, 0, 0),
@@ -76,12 +77,19 @@ class PDFProcessor:
                         text_stroke=0xFF000000
                     )
                 ).to_pil()
-            except TypeError:
+                print(f"DEBUG: Successfully rendered with matrix API")
+            except TypeError as e:
+                print(f"DEBUG: Matrix API failed with TypeError: {e}")
                 # Old API version - use scale directly
+                print(f"DEBUG: Attempting to render page {page_num + 1} with scale API")
                 pil_image = pdfium_page.render(
                     scale=scale,
                     crop=(0, 0, 0, 0)
                 ).to_pil()
+                print(f"DEBUG: Successfully rendered with scale API")
+            except Exception as e:
+                print(f"ERROR: Failed to render page {page_num + 1}: {e}")
+                raise
 
             # Use the full page as the drawing area
             bbox = self._find_drawing_area_precise(plumber_page, page_num)
@@ -95,6 +103,20 @@ class PDFProcessor:
                     int(x1 * scale),
                     int(y1 * scale)
                 ))
+
+                # Check if image has actual content (not all white/transparent)
+                import numpy as np
+                img_array = np.array(cropped_image)
+                print(f"DEBUG: Page {page_num + 1} image array shape: {img_array.shape}")
+                print(f"DEBUG: Page {page_num + 1} image array dtype: {img_array.dtype}")
+
+                # Check if not all pixels are white (255, 255, 255) or near white
+                if len(img_array.shape) == 3:  # RGB/RGBA image
+                    non_white_pixels = np.any(img_array[:, :, :3] < 250, axis=2).sum()
+                else:  # Grayscale
+                    non_white_pixels = (img_array < 250).sum()
+
+                print(f"DEBUG: Page {page_num + 1} non-white pixels: {non_white_pixels}")
 
                 img_data = {
                     'page': page_num,
