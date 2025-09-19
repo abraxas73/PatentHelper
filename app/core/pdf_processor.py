@@ -54,16 +54,24 @@ class PDFProcessor:
 
         try:
             # Render page to PIL Image
-            pil_image = pdfium_page.render(
-                matrix=mat,
-                crop=(0, 0, 0, 0),
-                color_scheme=pdfium.PdfColorScheme(
-                    path_fill=0xFFFFFFFF,
-                    path_stroke=0xFF000000,
-                    text_fill=0xFF000000,
-                    text_stroke=0xFF000000
-                )
-            ).to_pil()
+            # Try new API first, fall back to old API if needed
+            try:
+                pil_image = pdfium_page.render(
+                    matrix=mat,
+                    crop=(0, 0, 0, 0),
+                    color_scheme=pdfium.PdfColorScheme(
+                        path_fill=0xFFFFFFFF,
+                        path_stroke=0xFF000000,
+                        text_fill=0xFF000000,
+                        text_stroke=0xFF000000
+                    )
+                ).to_pil()
+            except TypeError:
+                # Old API version - use scale directly
+                pil_image = pdfium_page.render(
+                    scale=scale,
+                    crop=(0, 0, 0, 0)
+                ).to_pil()
 
             # Use the full page as the drawing area
             bbox = self._find_drawing_area_precise(plumber_page, page_num)
