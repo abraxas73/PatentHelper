@@ -315,22 +315,27 @@ class ImageAnnotator:
 
         # If image was rotated for OCR, rotate it back for annotation
         # is_rotated can be bool or string with rotation type
+        # IMPORTANT: PIL.Image.rotate() uses counterclockwise as positive
         if is_rotated:
             if isinstance(is_rotated, str):
                 # Specific rotation type (e.g., "+90°" or "-90°")
                 if "+90" in is_rotated:
-                    logger.info(f"Rotating image -90 degrees to compensate for +90° OCR rotation")
-                    original_img = original_img.rotate(-90, expand=True)  # Undo +90 clockwise
+                    # OCR did +90° clockwise (cv2.ROTATE_90_CLOCKWISE)
+                    # To undo: rotate -90° clockwise = +90° counterclockwise in PIL
+                    logger.info(f"Rotating image +90 degrees counterclockwise to undo +90° clockwise OCR rotation")
+                    original_img = original_img.rotate(90, expand=True)
                 elif "-90" in is_rotated:
-                    logger.info(f"Rotating image +90 degrees to compensate for -90° OCR rotation")
-                    original_img = original_img.rotate(90, expand=True)  # Undo -90 counterclockwise
+                    # OCR did -90° counterclockwise (cv2.ROTATE_90_COUNTERCLOCKWISE)
+                    # To undo: rotate +90° clockwise = -90° counterclockwise in PIL
+                    logger.info(f"Rotating image -90 degrees counterclockwise to undo -90° counterclockwise OCR rotation")
+                    original_img = original_img.rotate(-90, expand=True)
                 else:
                     logger.info(f"Rotating image for annotation (rotation type: {is_rotated})")
-                    original_img = original_img.rotate(-90, expand=True)  # Default
+                    original_img = original_img.rotate(90, expand=True)  # Default
             else:
-                # Legacy bool support
-                logger.info(f"Rotating image 90 degrees for annotation (was rotated for OCR)")
-                original_img = original_img.rotate(-90, expand=True)  # Rotate 90 degrees clockwise
+                # Legacy bool support (assumes it was -90° counterclockwise)
+                logger.info(f"Rotating image +90 degrees to undo OCR rotation")
+                original_img = original_img.rotate(90, expand=True)
 
         original_width, original_height = original_img.size
         

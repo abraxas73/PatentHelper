@@ -373,7 +373,11 @@ def process_with_ocr(job_id, pdf_filename):
             pdf_merge_success = True
 
         except Exception as e:
-            print(f"Failed to merge with original PDF, falling back to image-only PDF: {e}")
+            import traceback
+            print(f"Failed to merge with original PDF: {e}")
+            print(f"Error type: {type(e).__name__}")
+            print("Traceback:")
+            traceback.print_exc()
             completion_message = 'OCR 처리 완료 (도면만 포함 - 원본 PDF 병합 실패)'
             # Fallback to simple image-based PDF if merging fails
             pdf_path = pdf_generator.create_from_images(

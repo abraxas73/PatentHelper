@@ -110,7 +110,7 @@
                 📋 원본 PDF
               </button>
               <button v-if="jobData.annotatedPdf" @click="downloadPdf" class="btn-pdf-download">
-                📄 어노테이션 PDF
+                📄 완성 PDF 다운로드
               </button>
             </div>
           </div>

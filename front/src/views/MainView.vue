@@ -122,7 +122,7 @@
       <div v-if="successMessage" class="success-message">
         ✅ {{ successMessage }}
         <button v-if="annotatedPdfUrl && !isReworkMode && !isProcessingOCR" @click="downloadPdf" class="download-pdf-btn">
-          📄 어노테이션된 PDF 다운로드
+          📄 완성 PDF 다운로드
         </button>
       </div>
     </div>
@@ -327,7 +327,7 @@
             @click="downloadPdf()"
             class="btn btn-pdf"
           >
-            📄 어노테이션된 PDF 다운로드
+            📄 완성 PDF 다운로드
           </button>
         </div>
       </div>
