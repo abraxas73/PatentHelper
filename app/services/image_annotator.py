@@ -313,29 +313,33 @@ class ImageAnnotator:
         # Load original image
         original_img = Image.open(image_path)
 
-        # If image was rotated for OCR, rotate it back for annotation
-        # is_rotated can be bool or string with rotation type
-        # IMPORTANT: PIL.Image.rotate() uses counterclockwise as positive
+        # If image was rotated for OCR, we need to rotate it to match OCR orientation
+        # Apply labels in the same orientation, then rotate back
+        rotation_to_restore = None
         if is_rotated:
             if isinstance(is_rotated, str):
                 # Specific rotation type (e.g., "+90°" or "-90°")
                 if "+90" in is_rotated:
-                    # OCR did +90° clockwise (cv2.ROTATE_90_CLOCKWISE)
-                    # To undo: rotate -90° clockwise = +90° counterclockwise in PIL
-                    logger.info(f"Rotating image +90 degrees counterclockwise to undo +90° clockwise OCR rotation")
-                    original_img = original_img.rotate(90, expand=True)
+                    # OCR did +90° clockwise, so rotate image +90° clockwise to match
+                    # In PIL: +90° means counterclockwise, so we need -90° for clockwise
+                    logger.info(f"Rotating image +90° clockwise to match OCR orientation")
+                    original_img = original_img.rotate(-90, expand=True)  # -90° = clockwise
+                    rotation_to_restore = 90  # Will rotate back 90° counterclockwise later
                 elif "-90" in is_rotated:
-                    # OCR did -90° counterclockwise (cv2.ROTATE_90_COUNTERCLOCKWISE)
-                    # To undo: rotate +90° clockwise = -90° counterclockwise in PIL
-                    logger.info(f"Rotating image -90 degrees counterclockwise to undo -90° counterclockwise OCR rotation")
-                    original_img = original_img.rotate(-90, expand=True)
+                    # OCR did -90° counterclockwise, so rotate image -90° counterclockwise to match
+                    # In PIL: +90° means counterclockwise
+                    logger.info(f"Rotating image -90° counterclockwise to match OCR orientation")
+                    original_img = original_img.rotate(90, expand=True)  # +90° = counterclockwise
+                    rotation_to_restore = -90  # Will rotate back 90° clockwise later
                 else:
-                    logger.info(f"Rotating image for annotation (rotation type: {is_rotated})")
-                    original_img = original_img.rotate(90, expand=True)  # Default
+                    logger.info(f"Rotating image to match OCR rotation (type: {is_rotated})")
+                    original_img = original_img.rotate(90, expand=True)
+                    rotation_to_restore = -90  # Default
             else:
                 # Legacy bool support (assumes it was -90° counterclockwise)
-                logger.info(f"Rotating image +90 degrees to undo OCR rotation")
+                logger.info(f"Rotating image to match OCR rotation")
                 original_img = original_img.rotate(90, expand=True)
+                rotation_to_restore = -90
 
         original_width, original_height = original_img.size
         
@@ -422,6 +426,15 @@ class ImageAnnotator:
             original_center_x = region['center']['x']
             original_center_y = region['center']['y']
 
+            # DEBUG: Log coordinate information for rotation debugging
+            logger.info(f"DEBUG - Processing number {region['number']}: "
+                       f"OCR coordinates: ({original_center_x}, {original_center_y}), "
+                       f"image_size_after_rotation: {original_width}x{original_height}, "
+                       f"rotation_applied: {rotation_to_restore is not None}")
+
+            if rotation_to_restore is not None:
+                logger.info(f"DEBUG - Rotation info: will restore {rotation_to_restore}° after labeling")
+
             # Find which drawing region this number belongs to
             assigned_drawing = None
             for drawing in drawing_regions:
@@ -475,10 +488,20 @@ class ImageAnnotator:
             # Calculate optimal label position in expanded areas with overlap avoidance
             # Pass the pre-determined side information
             side = region.get('side', 'left')  # Get stored side information
+
+            # DEBUG: Log position calculations for rotation debugging
+            logger.info(f"DEBUG - Calculating label position for {region['number']}: "
+                       f"adjusted_center: ({adjusted_center['x']}, {adjusted_center['y']}), "
+                       f"side: {side}, bbox: {bbox}")
+
             try:
                 arrow_start, bend_point = self._calculate_optimal_label_position_expanded(
                     expanded_img, adjusted_center, bbox, left_expansion, right_expansion, label_positions, working_font, side
                 )
+
+                # DEBUG: Log calculated positions
+                logger.info(f"DEBUG - Calculated positions for {region['number']}: "
+                           f"arrow_start: {arrow_start}, bend_point: {bend_point}")
             except Exception as e:
                 logger.error(f"Failed to calculate position for region {number}: {e}")
                 continue
@@ -518,9 +541,12 @@ class ImageAnnotator:
             left_expansion, right_expansion, vertical_expansion, self.debug_mode)
         
         # If image was rotated for OCR, rotate back to original orientation
-        if is_rotated:
-            logger.info(f"Rotating annotated image back to original orientation")
-            final_img = final_img.rotate(90, expand=True)  # Rotate 90 degrees counterclockwise to restore
+        # Apply the rotation we stored earlier
+        if rotation_to_restore is not None:
+            logger.info(f"DEBUG - Before final rotation: image size {final_img.size}")
+            logger.info(f"Rotating annotated image back to original orientation (rotation: {rotation_to_restore}°)")
+            final_img = final_img.rotate(rotation_to_restore, expand=True)
+            logger.info(f"DEBUG - After final rotation: image size {final_img.size}")
 
         # Save annotated image
         output_path = self.output_dir / output_filename
