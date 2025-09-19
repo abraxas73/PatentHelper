@@ -123,14 +123,17 @@ def extract_mappings(job_id, s3_key):
             # Initialize services
             output_dir = Path(f"/tmp/{job_id}_output")
             output_dir.mkdir(exist_ok=True)
+            print(f"Created output directory: {output_dir}")
 
             # Simple image saving without OCR
             saved_images = []
             for idx, img_data in enumerate(raw_images):
+                print(f"Processing image {idx}: has pil_image? {bool(img_data.get('pil_image'))}, page: {img_data.get('page')}, index: {img_data.get('index')}")
                 if img_data.get('pil_image'):
                     # Save image
                     filename = f"drawing_{img_data['page']:03d}_{img_data['index']:02d}.png"
                     img_path = output_dir / filename
+                    print(f"Saving image to: {img_path}")
                     img_data['pil_image'].save(str(img_path))
                     
                     saved_images.append({
@@ -141,17 +144,25 @@ def extract_mappings(job_id, s3_key):
                         'page_num': img_data.get('page_num', img_data['page'] + 1),  # Use page_num (1-indexed) if available
                         'bbox': img_data.get('bbox')  # Include bbox information
                     })
-            
+                    print(f"Added image to saved_images: {filename}")
+                else:
+                    print(f"WARNING: Image {idx} has no pil_image data!")
+
+            print(f"Total saved images: {len(saved_images)}")
+
             # Upload extracted images to S3
             update_job_status(job_id, 'PROCESSING',
                              message='이미지를 업로드하는 중...',
                              progress=60)
             
             extracted_s3_keys = []
-            for img_info in saved_images:
+            print(f"Starting S3 upload for {len(saved_images)} images...")
+            for img_idx, img_info in enumerate(saved_images):
                 filename = os.path.basename(img_info['file_path'])
                 s3_key = f"results/{job_id}/extracted/{filename}"
+                print(f"Uploading {img_idx+1}/{len(saved_images)}: {filename} to s3://{BUCKET_NAME}/{s3_key}")
                 s3.upload_file(img_info['file_path'], BUCKET_NAME, s3_key)
+                print(f"Successfully uploaded {filename}")
 
                 # Convert bbox floats to Decimal for DynamoDB
                 bbox_data = img_info.get('bbox')
@@ -166,7 +177,9 @@ def extract_mappings(job_id, s3_key):
                     'page_num': img_info.get('page_num'),
                     'bbox': bbox_data  # Include converted bbox information
                 })
-            
+
+            print(f"Completed S3 uploads. Total files in extracted_s3_keys: {len(extracted_s3_keys)}")
+
             # Extract number mappings from text
             update_job_status(job_id, 'PROCESSING',
                              message='번호 매핑을 분석하는 중...',
@@ -179,10 +192,16 @@ def extract_mappings(job_id, s3_key):
             detected_numbers = list(number_mappings.keys()) if number_mappings else []
             
             processing_time = time.time() - start_time
-            
+
             # Save metadata to DynamoDB for later use
             table = dynamodb.Table(TABLE_NAME)
-            
+
+            print(f"Preparing final update to DynamoDB:")
+            print(f"  - extractedImages count: {len(extracted_s3_keys)}")
+            print(f"  - numberMappings count: {len(number_mappings) if number_mappings else 0}")
+            print(f"  - detectedNumbers count: {len(detected_numbers) if detected_numbers else 0}")
+            print(f"  - processing time: {int(processing_time)} seconds")
+
             # Store extraction results in main job
             update_job_status(
                 job_id, 'COMPLETED',
