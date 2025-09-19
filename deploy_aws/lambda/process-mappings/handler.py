@@ -105,7 +105,6 @@ def lambda_handler(event, context):
                             'name': 'ocr-processor',
                             'environment': [
                                 {'name': 'JOB_ID', 'value': job_id},
-                                {'name': 'PDF_FILENAME', 'value': pdf_filename},
                                 {'name': 'BUCKET_NAME', 'value': BUCKET_NAME},
                                 {'name': 'TABLE_NAME', 'value': TABLE_NAME}
                             ]

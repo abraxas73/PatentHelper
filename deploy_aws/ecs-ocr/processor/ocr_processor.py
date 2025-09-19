@@ -28,7 +28,6 @@ dynamodb = boto3.resource('dynamodb')
 
 # Environment variables
 JOB_ID = os.environ.get('JOB_ID')
-PDF_FILENAME = os.environ.get('PDF_FILENAME')
 BUCKET_NAME = os.environ.get('BUCKET_NAME', 'patent-helper-documents-prod')
 TABLE_NAME = os.environ.get('TABLE_NAME', 'patent-helper-jobs-prod')
 OPERATION = os.environ.get('OPERATION', 'OCR')  # OCR or REGENERATE_PDF
@@ -577,23 +576,39 @@ def regenerate_pdf_with_edited_images(job_id, original_job_id, pdf_filename, out
 
 def main():
     """Main entry point"""
-    if not JOB_ID or not PDF_FILENAME:
-        print("Error: JOB_ID and PDF_FILENAME are required")
+    if not JOB_ID:
+        print("Error: JOB_ID is required")
         sys.exit(1)
 
     print(f"Starting job: {JOB_ID}, Operation: {OPERATION}")
 
     try:
+        # Get job data from DynamoDB to fetch filename
+        table = dynamodb.Table(TABLE_NAME)
+
         if OPERATION == 'REGENERATE_PDF':
             # PDF regeneration mode
             if not ORIGINAL_JOB_ID or not OUTPUT_S3_KEY:
                 print("Error: ORIGINAL_JOB_ID and OUTPUT_S3_KEY are required for PDF regeneration")
                 sys.exit(1)
 
+            # Get original job data to fetch PDF filename
+            response = table.get_item(Key={'jobId': ORIGINAL_JOB_ID})
+            if 'Item' not in response:
+                raise ValueError(f"Original job {ORIGINAL_JOB_ID} not found in DynamoDB")
+
+            original_job_data = response['Item']
+            pdf_filename = original_job_data.get('filename') or original_job_data.get('pdf_filename')
+
+            if not pdf_filename:
+                raise ValueError(f"No filename found for original job {ORIGINAL_JOB_ID}")
+
+            print(f"Retrieved PDF filename from DynamoDB: {pdf_filename}")
+
             regenerate_pdf_with_edited_images(
                 JOB_ID,
                 ORIGINAL_JOB_ID,
-                PDF_FILENAME,
+                pdf_filename,
                 OUTPUT_S3_KEY,
                 EDITED_IMAGES
             )
@@ -601,11 +616,24 @@ def main():
             print(f"Successfully completed PDF regeneration job {JOB_ID}")
         else:
             # Normal OCR mode
+            # Get job data to fetch PDF filename
+            response = table.get_item(Key={'jobId': JOB_ID})
+            if 'Item' not in response:
+                raise ValueError(f"Job {JOB_ID} not found in DynamoDB")
+
+            job_data = response['Item']
+            pdf_filename = job_data.get('filename') or job_data.get('pdf_filename')
+
+            if not pdf_filename:
+                raise ValueError(f"No filename found for job {JOB_ID}")
+
+            print(f"Retrieved PDF filename from DynamoDB: {pdf_filename}")
+
             update_job_status(JOB_ID, 'PROCESSING',
                             message='OCR 처리 컨테이너가 시작되었습니다',
                             progress=5)
 
-            process_with_ocr(JOB_ID, PDF_FILENAME)
+            process_with_ocr(JOB_ID, pdf_filename)
 
             print(f"Successfully completed OCR job {JOB_ID}")
     except Exception as e:

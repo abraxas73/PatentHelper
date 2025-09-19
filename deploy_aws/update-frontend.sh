@@ -47,7 +47,7 @@ echo "CloudFront URL: $CLOUDFRONT_URL"
 # Build frontend
 echo -e "${YELLOW}📦 Building Frontend...${NC}"
 
-cd ../front
+cd front
 
 # Check if config.js exists
 if [ ! -f "src/config.js" ]; then

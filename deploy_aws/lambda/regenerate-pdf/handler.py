@@ -144,14 +144,14 @@ def lambda_handler(event, context):
         output_s3_key = f"results/pdfs/{output_filename}"
 
         # Prepare ECS task environment
+        # Remove PDF_FILENAME and OUTPUT_FILENAME to avoid Unicode issues
+        # ECS container will fetch these from DynamoDB using job IDs
         task_env = [
             {'name': 'JOB_ID', 'value': regeneration_job_id},
             {'name': 'ORIGINAL_JOB_ID', 'value': job_id},
-            {'name': 'PDF_FILENAME', 'value': pdf_filename},  # Add missing PDF_FILENAME
             {'name': 'BUCKET_NAME', 'value': BUCKET_NAME},
             {'name': 'TABLE_NAME', 'value': TABLE_NAME},
             {'name': 'OPERATION', 'value': 'REGENERATE_PDF'},
-            {'name': 'OUTPUT_FILENAME', 'value': output_filename},
             {'name': 'OUTPUT_S3_KEY', 'value': output_s3_key},
             {'name': 'SESSION_ID', 'value': session_id},
             {'name': 'EDITED_IMAGES', 'value': json.dumps(stored_edited_images, default=decimal_default)},
