@@ -106,7 +106,6 @@ class PDFProcessor:
 
                 # Check if image has actual content (not all white/transparent)
                 import numpy as np
-                from scipy import stats
 
                 img_array = np.array(cropped_image)
                 print(f"DEBUG: Page {page_num + 1} image array shape: {img_array.shape}")
