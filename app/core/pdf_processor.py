@@ -135,16 +135,17 @@ class PDFProcessor:
                 print(f"DEBUG: Page {page_num + 1} non-white pixels: {non_white_pixels} ({non_white_ratio:.2%})")
                 print(f"DEBUG: Page {page_num + 1} image entropy: {entropy:.2f}")
 
-                # Minimum thresholds for actual drawing content
-                MIN_NON_WHITE_RATIO = 0.05  # At least 5% non-white pixels
-                MIN_ENTROPY = 2.0  # Minimum entropy for meaningful content
+                # Very lenient thresholds - only exclude nearly blank pages
+                MIN_NON_WHITE_RATIO = 0.01  # At least 1% non-white pixels (very lenient)
+                MIN_ENTROPY = 1.0  # Very low entropy threshold
 
-                # Check if image has sufficient content
-                has_content = non_white_ratio >= MIN_NON_WHITE_RATIO and entropy >= MIN_ENTROPY
+                # Check if image has any meaningful content at all
+                # Only skip if it's almost completely white (likely text-only page)
+                has_content = non_white_ratio >= MIN_NON_WHITE_RATIO or entropy >= MIN_ENTROPY
 
                 if not has_content:
-                    logger.warning(f"Page {page_num + 1} identified as drawing but has insufficient image content (ratio: {non_white_ratio:.2%}, entropy: {entropy:.2f})")
-                    print(f"DEBUG: Page {page_num + 1} - Skipping due to insufficient content")
+                    logger.warning(f"Page {page_num + 1} appears to be text-only or blank (ratio: {non_white_ratio:.2%}, entropy: {entropy:.2f})")
+                    print(f"DEBUG: Page {page_num + 1} - Skipping text-only/blank page")
                     return images
 
                 img_data = {
