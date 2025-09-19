@@ -12,8 +12,15 @@ logger = logging.getLogger(__name__)
 class PDFProcessor:
     def __init__(self, pdf_path: Path):
         self.pdf_path = pdf_path
+        print(f"DEBUG: Opening PDF file: {pdf_path}")
+        print(f"DEBUG: File exists: {pdf_path.exists()}")
+        print(f"DEBUG: File size: {pdf_path.stat().st_size if pdf_path.exists() else 'N/A'}")
+
         self.pdfium_doc = pdfium.PdfDocument(str(pdf_path))
         self.plumber_doc = pdfplumber.open(pdf_path)
+
+        print(f"DEBUG: Loaded pypdfium2 doc: {len(self.pdfium_doc)} pages")
+        print(f"DEBUG: Loaded pdfplumber doc: {len(self.plumber_doc.pages)} pages")
         logger.info(f"Loaded PDF with {len(self.pdfium_doc)} pages")
 
     def extract_text(self) -> str:

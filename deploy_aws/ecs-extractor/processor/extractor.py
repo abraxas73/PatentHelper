@@ -85,13 +85,21 @@ def extract_mappings(job_id, s3_key):
                          progress=10)
         
         local_pdf_path = f"/tmp/{job_id}.pdf"
+        print(f"Downloading from S3: bucket={BUCKET_NAME}, key={s3_key}")
         s3.download_file(BUCKET_NAME, s3_key, local_pdf_path)
-        
+
+        # Verify file was downloaded
+        if not os.path.exists(local_pdf_path):
+            raise Exception(f"Failed to download PDF from S3: file not found at {local_pdf_path}")
+
+        file_size = os.path.getsize(local_pdf_path)
+        print(f"Downloaded PDF: {local_pdf_path}, size={file_size} bytes")
+
         # Process PDF
         update_job_status(job_id, 'PROCESSING',
                          message='텍스트를 추출하는 중...',
                          progress=20)
-        
+
         with PDFProcessor(Path(local_pdf_path)) as pdf_processor:
             # Extract text
             full_text = pdf_processor.extract_text()
