@@ -3,6 +3,7 @@ import boto3
 import uuid
 from datetime import datetime
 import os
+import unicodedata
 from decimal import Decimal
 from botocore.exceptions import ClientError
 
@@ -21,6 +22,22 @@ def decimal_default(obj):
     if isinstance(obj, Decimal):
         return float(obj)
     raise TypeError
+
+def normalize_unicode(text):
+    """Unicode 정규화 함수 - Unicode Form C로 정규화"""
+    if isinstance(text, str):
+        return unicodedata.normalize('NFC', text)
+    return text
+
+def normalize_environment_variable(value):
+    """환경 변수 값을 Unicode Form C로 정규화"""
+    if isinstance(value, str):
+        return unicodedata.normalize('NFC', value)
+    elif isinstance(value, dict):
+        return {k: normalize_environment_variable(v) for k, v in value.items()}
+    elif isinstance(value, list):
+        return [normalize_environment_variable(item) for item in value]
+    return value
 
 def lambda_handler(event, context):
     """
@@ -147,14 +164,14 @@ def lambda_handler(event, context):
         # Remove PDF_FILENAME and OUTPUT_FILENAME to avoid Unicode issues
         # ECS container will fetch these from DynamoDB using job IDs
         task_env = [
-            {'name': 'JOB_ID', 'value': regeneration_job_id},
-            {'name': 'ORIGINAL_JOB_ID', 'value': job_id},
-            {'name': 'BUCKET_NAME', 'value': BUCKET_NAME},
-            {'name': 'TABLE_NAME', 'value': TABLE_NAME},
-            {'name': 'OPERATION', 'value': 'REGENERATE_PDF'},
-            {'name': 'OUTPUT_S3_KEY', 'value': output_s3_key},
-            {'name': 'SESSION_ID', 'value': session_id},
-            {'name': 'EDITED_IMAGES', 'value': json.dumps(stored_edited_images, default=decimal_default)},
+            {'name': 'JOB_ID', 'value': normalize_unicode(regeneration_job_id)},
+            {'name': 'ORIGINAL_JOB_ID', 'value': normalize_unicode(job_id)},
+            {'name': 'BUCKET_NAME', 'value': normalize_unicode(BUCKET_NAME)},
+            {'name': 'TABLE_NAME', 'value': normalize_unicode(TABLE_NAME)},
+            {'name': 'OPERATION', 'value': normalize_unicode('REGENERATE_PDF')},
+            {'name': 'OUTPUT_S3_KEY', 'value': normalize_unicode(output_s3_key)},
+            {'name': 'SESSION_ID', 'value': normalize_unicode(session_id)},
+            {'name': 'EDITED_IMAGES', 'value': normalize_unicode(json.dumps(stored_edited_images, default=decimal_default))},
         ]
 
         # Update DynamoDB with regeneration job

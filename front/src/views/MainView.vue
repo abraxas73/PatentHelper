@@ -357,6 +357,8 @@
       </div>
 
       <!-- Annotated Images - Show only when not in mapping mode -->
+      <!-- DEPRECATED: This section is deprecated. OCR completion now redirects to job detail page (/job/{jobId}) -->
+      <!-- TODO: Remove this section after confirming job detail page handles all use cases -->
       <div v-if="annotatedImages.length > 0 && !showMappings" class="annotated-section">
         <h3>어노테이션 도면</h3>
         <div class="image-grid">
@@ -754,11 +756,23 @@ export default {
             stopTimer()
             isProcessing.value = false
             isProcessingOCR.value = false
-            isCompleted.value = true
-            
-            // Show result URL
-            const baseUrl = config.isLocal ? 'http://localhost:3000' : window.location.origin
-            successMessage.value = `처리 완료! 결과 페이지: ${baseUrl}/#/job/${currentJobId.value}`
+
+            // Show success message briefly before redirect
+            successMessage.value = `처리 완료! 결과 페이지로 이동합니다...`
+
+            // Add debug log to ensure redirect is happening
+            console.log('OCR processing completed. Redirecting to job detail page:', currentJobId.value)
+
+            // Redirect to job result page instead of showing completed state here
+            // This consolidates the result viewing experience
+            if (currentJobId.value) {
+              setTimeout(() => {
+                router.push(`/job/${currentJobId.value}`)
+              }, 1000) // Give user 1 second to see the success message
+            } else {
+              console.error('No jobId available for redirect')
+              errorMessage.value = 'Job ID가 없어 결과 페이지로 이동할 수 없습니다.'
+            }
             
           } else if (response.data.status === 'FAILED') {
             errorMessage.value = response.data.message || 'OCR 처리 중 오류가 발생했습니다.'

@@ -239,15 +239,28 @@ def lambda_handler(event, context):
                         s3_key = pdf_info['s3Key'].replace(f's3://{BUCKET_NAME}/', '')
                         # Generate CloudFront URL
                         url = f"{CLOUDFRONT_DOMAIN}/{s3_key}"
+
+                        # Generate presigned URL for direct S3 access
+                        try:
+                            presigned_url = s3.generate_presigned_url(
+                                'get_object',
+                                Params={'Bucket': BUCKET_NAME, 'Key': s3_key},
+                                ExpiresIn=3600  # 1 hour
+                            )
+                        except Exception as e:
+                            print(f"Error generating presigned URL for {s3_key}: {str(e)}")
+                            presigned_url = url  # Fallback to CloudFront URL
+
                         regenerated_pdfs.append({
                             'jobId': pdf_info.get('jobId'),
                             'filename': pdf_info.get('filename'),
-                            'url': url,
+                            'url': presigned_url,  # Use presigned URL instead of CloudFront
+                            's3Key': pdf_info.get('s3Key'),
                             'timestamp': pdf_info.get('timestamp'),
                             'editCount': pdf_info.get('editCount', 0),
                             'sessionId': pdf_info.get('sessionId')
                         })
-                        print(f"Added regenerated PDF: {pdf_info.get('filename')} with URL: {url}")
+                        print(f"Added regenerated PDF: {pdf_info.get('filename')} with presigned URL")
                 except Exception as e:
                     print(f"Error processing regenerated PDF: {str(e)}")
                     continue

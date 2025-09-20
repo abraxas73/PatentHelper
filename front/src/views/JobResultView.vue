@@ -64,36 +64,26 @@
         <p>{{ jobData.message }}</p>
       </div>
 
-      <!-- 추출된 도면 -->
-      <div v-if="jobData.extractedImages && jobData.extractedImages.length > 0" class="results-section">
-        <div class="results-header">
-          <h2 class="results-title">추출된 도면</h2>
-          <div class="results-count">총 {{ jobData.extractedImages.length }}개</div>
-        </div>
-
-        <!-- Original Images -->
-        <div class="image-grid">
-          <div v-for="(image, index) in jobData.extractedImages" :key="index" class="image-card">
-            <div class="image-wrapper">
-              <img
-                :src="getImageUrl(image)"
-                :alt="`도면 ${index + 1}`"
-                @click="openModal(image)"
-                @error="handleImageError($event, image)"
-                style="cursor: pointer;"
-              />
+      <!-- 재생성된 PDF 섹션 (moved to top) -->
+      <div v-if="jobData.regeneratedPdfs && jobData.regeneratedPdfs.length > 0" class="regenerated-pdfs-section">
+        <h3>재생성된 PDF</h3>
+        <div class="pdf-list">
+          <div v-for="pdf in jobData.regeneratedPdfs" :key="pdf.jobId" class="pdf-item">
+            <div class="pdf-info">
+              <span class="pdf-filename">{{ pdf.filename }}</span>
+              <span class="pdf-date">{{ formatDate(pdf.timestamp) }}</span>
+              <span class="edit-count">편집 {{ pdf.editCount }}개</span>
             </div>
-            <div class="image-info">
-              <div class="image-title">도면 {{ index + 1 }}</div>
-              <div class="image-meta">
-                <span class="badge badge-original">원본</span>
-              </div>
-            </div>
+            <button @click="downloadRegeneratedPdf(pdf)" class="btn-download">
+              📥 다운로드
+            </button>
           </div>
         </div>
+      </div>
 
-        <!-- Annotated Images -->
-        <div v-if="jobData.annotatedImages && jobData.annotatedImages.length > 0" class="annotated-section">
+      <!-- Annotated Images -->
+      <div v-if="jobData.annotatedImages && jobData.annotatedImages.length > 0" class="results-section">
+        <div class="annotated-section">
           <div class="section-header">
             <h3>어노테이션 도면</h3>
             <div class="pdf-buttons">
@@ -137,23 +127,6 @@
         </div>
       </div>
 
-      <!-- 재생성된 PDF 섹션 -->
-      <div v-if="jobData.regeneratedPdfs && jobData.regeneratedPdfs.length > 0" class="regenerated-pdfs-section">
-        <h3>재생성된 PDF</h3>
-        <div class="pdf-list">
-          <div v-for="pdf in jobData.regeneratedPdfs" :key="pdf.jobId" class="pdf-item">
-            <div class="pdf-info">
-              <span class="pdf-filename">{{ pdf.filename }}</span>
-              <span class="pdf-date">{{ formatDate(pdf.timestamp) }}</span>
-              <span class="edit-count">편집 {{ pdf.editCount }}개</span>
-            </div>
-            <button @click="downloadRegeneratedPdf(pdf)" class="btn-download">
-              📥 다운로드
-            </button>
-          </div>
-        </div>
-      </div>
-
       <!-- 번호 매핑 정보 -->
       <div v-if="jobData.numberMappings && Object.keys(jobData.numberMappings).length > 0" class="mappings-section">
         <h3>부품 번호 매핑</h3>
@@ -162,6 +135,35 @@
             <span class="mapping-key">{{ key }}</span>
             <span class="mapping-arrow">→</span>
             <span class="mapping-value">{{ value }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 추출된 도면 (moved to bottom) -->
+      <div v-if="jobData.extractedImages && jobData.extractedImages.length > 0" class="results-section">
+        <div class="results-header">
+          <h2 class="results-title">추출된 도면 (원본)</h2>
+          <div class="results-count">총 {{ jobData.extractedImages.length }}개</div>
+        </div>
+
+        <!-- Original Images -->
+        <div class="image-grid">
+          <div v-for="(image, index) in jobData.extractedImages" :key="index" class="image-card">
+            <div class="image-wrapper">
+              <img
+                :src="getImageUrl(image)"
+                :alt="`도면 ${index + 1}`"
+                @click="openModal(image)"
+                @error="handleImageError($event, image)"
+                style="cursor: pointer;"
+              />
+            </div>
+            <div class="image-info">
+              <div class="image-title">도면 {{ index + 1 }}</div>
+              <div class="image-meta">
+                <span class="badge badge-original">원본</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -318,24 +320,12 @@ const downloadRegeneratedPdf = async (pdf) => {
       return
     }
 
-    // For S3 URLs, download directly
-    console.log('Downloading regenerated PDF:', pdf.url)
+    // Use the presigned URL directly from the backend
+    console.log('Downloading regenerated PDF with presigned URL')
 
-    // Fetch the PDF as blob
-    const response = await axios.get(pdf.url, {
-      responseType: 'blob'
-    })
+    // Simply open the URL in a new window/tab - browser will handle the download
+    window.open(pdf.url, '_blank')
 
-    // Create blob URL and download
-    const blob = new Blob([response.data], { type: 'application/pdf' })
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = pdf.filename || 'regenerated.pdf'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    window.URL.revokeObjectURL(url)
   } catch (error) {
     console.error('Failed to download regenerated PDF:', error)
     alert('PDF 다운로드에 실패했습니다.')
