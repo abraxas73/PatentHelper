@@ -166,19 +166,15 @@ def extract_mappings(job_id, s3_key):
                 s3.upload_file(img_info['file_path'], BUCKET_NAME, s3_key)
                 print(f"Successfully uploaded {filename}")
 
-                # Convert bbox floats to Decimal for DynamoDB
-                bbox_data = img_info.get('bbox')
-                if bbox_data:
-                    bbox_data = convert_floats_to_decimal(bbox_data)
-
-                extracted_s3_keys.append({
+                # Convert all numeric values to appropriate types for DynamoDB
+                extracted_s3_keys.append(convert_floats_to_decimal({
                     'file_path': s3_key,
                     'filename': filename,
                     'width': img_info.get('width'),
                     'height': img_info.get('height'),
                     'page_num': img_info.get('page_num'),
-                    'bbox': bbox_data  # Include converted bbox information
-                })
+                    'bbox': img_info.get('bbox')
+                }))
 
             print(f"Completed S3 uploads. Total files in extracted_s3_keys: {len(extracted_s3_keys)}")
 
