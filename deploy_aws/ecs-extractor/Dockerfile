@@ -50,4 +50,4 @@ ENV PYTHONIOENCODING=utf-8
 
 # Run the extractor
 CMD ["python", "-u", "processor/extractor.py"]
-# Force rebuild Fri Sep 19 13:44:37 KST 2025
+# Force rebuild Tue Sep 24 20:15:00 KST 2025
