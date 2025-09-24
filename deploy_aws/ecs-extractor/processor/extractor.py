@@ -48,27 +48,29 @@ def update_job_status(job_id, status, **kwargs):
     """Update job status in DynamoDB"""
     try:
         table = dynamodb.Table(TABLE_NAME)
-        
+
         # Build update expression
         update_parts = ['#status = :status', 'processType = :processType']
         expression_names = {'#status': 'status'}
         expression_values = {':status': status, ':processType': 'EXTRACTION'}
-        
-        # Add optional fields
+
+        # Add optional fields and convert floats to Decimal
         for key, value in kwargs.items():
             if value is not None:
+                # Convert floats to Decimal for DynamoDB compatibility
+                value = convert_floats_to_decimal(value)
                 update_parts.append(f'{key} = :{key}')
                 expression_values[f':{key}'] = value
-        
+
         update_expression = 'SET ' + ', '.join(update_parts)
-        
+
         table.update_item(
             Key={'jobId': job_id},
             UpdateExpression=update_expression,
             ExpressionAttributeNames=expression_names,
             ExpressionAttributeValues=expression_values
         )
-        
+
         print(f"Updated job {job_id} status to {status}")
     except Exception as e:
         print(f"Error updating job status: {str(e)}")
@@ -216,14 +218,14 @@ def extract_mappings(job_id, s3_key):
             # Also store as metadata for reuse
             pdf_name = Path(s3_key).stem
             table.put_item(
-                Item={
+                Item=convert_floats_to_decimal({
                     'jobId': f"{pdf_name}_metadata",
                     'extracted_images': extracted_s3_keys,
                     'number_mappings': number_mappings,
                     'detected_numbers': list(set(detected_numbers)) if detected_numbers else [],
                     'createdAt': int(datetime.now().timestamp()),
                     'ttl': int(datetime.now().timestamp()) + 86400
-                }
+                })
             )
             
             print(f"Successfully extracted mappings for job {job_id}")

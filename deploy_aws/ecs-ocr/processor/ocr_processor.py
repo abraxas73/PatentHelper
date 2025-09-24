@@ -12,6 +12,7 @@ import tempfile
 import traceback
 from datetime import datetime
 from pathlib import Path
+from decimal import Decimal
 
 import boto3
 
@@ -35,6 +36,19 @@ ORIGINAL_JOB_ID = os.environ.get('ORIGINAL_JOB_ID')  # For PDF regeneration
 OUTPUT_S3_KEY = os.environ.get('OUTPUT_S3_KEY')  # For PDF regeneration
 EDITED_IMAGES = os.environ.get('EDITED_IMAGES', '{}')  # JSON string of edited images
 
+def convert_floats_to_decimal(obj):
+    """
+    Recursively convert all float values to Decimal for DynamoDB compatibility
+    """
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    elif isinstance(obj, dict):
+        return {key: convert_floats_to_decimal(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_floats_to_decimal(item) for item in obj]
+    else:
+        return obj
+
 def update_job_status(job_id, status, **kwargs):
     """Update job status in DynamoDB"""
     try:
@@ -45,9 +59,11 @@ def update_job_status(job_id, status, **kwargs):
         expression_names = {'#status': 'status'}
         expression_values = {':status': status, ':processType': 'OCR'}
         
-        # Add optional fields
+        # Add optional fields and convert floats to Decimal
         for key, value in kwargs.items():
             if value is not None:
+                # Convert floats to Decimal for DynamoDB compatibility
+                value = convert_floats_to_decimal(value)
                 update_parts.append(f'{key} = :{key}')
                 expression_values[f':{key}'] = value
         
