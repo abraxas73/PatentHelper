@@ -25,6 +25,7 @@ from app.services.text_analyzer import TextAnalyzer
 # AWS clients
 s3 = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
+dynamodb_client = boto3.client('dynamodb')
 
 # Environment variables
 JOB_ID = os.environ.get('JOB_ID')
@@ -34,13 +35,23 @@ TABLE_NAME = os.environ.get('TABLE_NAME', 'patent-helper-jobs-prod')
 def convert_floats_to_decimal(obj):
     """
     Recursively convert all float values to Decimal for DynamoDB compatibility
+    Also handles numpy types and other numeric types
     """
     if isinstance(obj, float):
         return Decimal(str(obj))
+    elif isinstance(obj, int) and not isinstance(obj, bool):
+        # Keep ints as ints unless they're too large
+        if obj > 2**53 or obj < -(2**53):
+            return Decimal(str(obj))
+        return obj
     elif isinstance(obj, dict):
         return {key: convert_floats_to_decimal(value) for key, value in obj.items()}
     elif isinstance(obj, list):
         return [convert_floats_to_decimal(item) for item in obj]
+    elif hasattr(obj, 'item'):  # numpy scalars
+        return convert_floats_to_decimal(obj.item())
+    elif hasattr(obj, 'tolist'):  # numpy arrays
+        return convert_floats_to_decimal(obj.tolist())
     else:
         return obj
 
@@ -57,6 +68,14 @@ def update_job_status(job_id, status, **kwargs):
         # Add optional fields and convert floats to Decimal
         for key, value in kwargs.items():
             if value is not None:
+                # Debug logging
+                print(f"DEBUG: Processing field {key}, type: {type(value)}")
+                if isinstance(value, list) and len(value) > 0:
+                    print(f"DEBUG: First item in {key}: type={type(value[0])}")
+                    if isinstance(value[0], dict):
+                        for k, v in value[0].items():
+                            print(f"DEBUG:   - {k}: type={type(v)}, value={v}")
+
                 # Convert floats to Decimal for DynamoDB compatibility
                 value = convert_floats_to_decimal(value)
                 update_parts.append(f'{key} = :{key}')
@@ -74,6 +93,9 @@ def update_job_status(job_id, status, **kwargs):
         print(f"Updated job {job_id} status to {status}")
     except Exception as e:
         print(f"Error updating job status: {str(e)}")
+        print(f"Error type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
 
 def extract_mappings(job_id, s3_key):
     """Extract mappings from PDF without OCR (analysis phase)"""
