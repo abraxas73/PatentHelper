@@ -39,13 +39,26 @@ EDITED_IMAGES = os.environ.get('EDITED_IMAGES', '{}')  # JSON string of edited i
 def convert_floats_to_decimal(obj):
     """
     Recursively convert all float values to Decimal for DynamoDB compatibility
+    Also handles numpy types, tuples, and other numeric types
     """
     if isinstance(obj, float):
         return Decimal(str(obj))
+    elif isinstance(obj, int) and not isinstance(obj, bool):
+        # Keep ints as ints unless they're too large
+        if obj > 2**53 or obj < -(2**53):
+            return Decimal(str(obj))
+        return obj
     elif isinstance(obj, dict):
         return {key: convert_floats_to_decimal(value) for key, value in obj.items()}
     elif isinstance(obj, list):
         return [convert_floats_to_decimal(item) for item in obj]
+    elif isinstance(obj, tuple):
+        # Convert tuple to list for DynamoDB compatibility
+        return [convert_floats_to_decimal(item) for item in obj]
+    elif hasattr(obj, 'item'):  # numpy scalars
+        return convert_floats_to_decimal(obj.item())
+    elif hasattr(obj, 'tolist'):  # numpy arrays
+        return convert_floats_to_decimal(obj.tolist())
     else:
         return obj
 
