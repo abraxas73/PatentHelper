@@ -1,0 +1,18 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "npm --prefix front install && npm --prefix front run build",
+  "outputDirectory": "front/dist",
+  "installCommand": "npm --prefix front install",
+  "functions": {
+    "api/**/*.py": {
+      "runtime": "python3.12",
+      "memory": 1024,
+      "maxDuration": 60,
+      "includeFiles": "app/**"
+    }
+  },
+  "env": {
+    "PLATFORM": "vercel"
+  }
+}

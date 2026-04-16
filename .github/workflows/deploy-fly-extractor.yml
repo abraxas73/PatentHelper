@@ -1,0 +1,26 @@
+name: Deploy Fly Extractor
+
+on:
+  # Fly 앱 생성 + FLY_API_TOKEN 시크릿 등록 후 아래 push 블록 주석 해제
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'app/**'
+  #     - 'fly/extractor/**'
+  #     - '.github/workflows/deploy-fly-extractor.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-fly-extractor
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy
+        run: flyctl deploy --config fly/extractor/fly.toml --dockerfile fly/extractor/Dockerfile --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

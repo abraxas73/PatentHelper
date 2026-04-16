@@ -4,6 +4,29 @@
 - Git Push하기 전에 CLAUDE.md,  README.md , tasks 파일 업데이트하고 push해줘
 - 
 
+## 하네스: AWS → Vercel/Fly.io/Supabase 마이그레이션
+
+**목표:** PatentHelper를 AWS(Lambda + ECS + S3 + DynamoDB + CloudFront)에서 Vercel(프론트+API) + Fly.io(상주 워커) + Supabase(Postgres+Storage+pgmq)로 이관하고, patent.sncbears.cloud를 Vercel로 DNS 전환한 뒤 AWS 자원을 정리해 비용을 제거한다.
+
+**트리거:** 클라우드 이관·Vercel·Fly.io·Supabase·cutover·DNS 전환·AWS 정리·재실행·부분 수정 관련 요청 시 `cloud-migration-orchestrator` 스킬을 사용하라. 단순 개념 질문은 직접 응답 가능.
+
+**팀 구성(7명):** migration-architect(리더), supabase-data-engineer, vercel-api-engineer, flyio-worker-engineer, frontend-migration-engineer, devops-cutover-engineer, qa-migration-tester. 상세 정의는 `.claude/agents/*.md` 참조.
+
+**전제:**
+- cutover 방식: 한 번에 전환 (blue-green 없음)
+- 스토리지: clean cutover (기존 S3 파일 이전 안 함)
+- 작업 이력: 가능하면 DynamoDB → Postgres 이전, 불가 시 clean
+- 최우선: AWS 비용 제거
+
+**변경 이력:**
+| 날짜 | 변경 내용 | 대상 | 사유 |
+|------|----------|------|------|
+| 2026-04-17 | 초기 구성 (7 에이전트 + 8 스킬) | 전체 | AWS 비용 절감 목적의 이관 프로젝트 착수 |
+| 2026-04-17 | Phase 1~2 완료 (디스커버리+계약) | `_workspace/01~03.md` | app/ cloud-agnostic 확인, Lambda 11→8 통합, pgmq 3큐 |
+| 2026-04-17 | Phase 3 완료 (기반 구축) | Supabase MCP 0001/0002 마이그 + 포팅 파일 19개 | 실제 인프라 스키마 적용, 버킷 생성 |
+| 2026-04-17 | Phase 4 착수 (포팅 완료) | `api/`, `fly/`, `.github/workflows/`, `vercel.json`, `front/src/config.js`, `app/config/settings.py` | 레포 루트로 파일 이동, PLATFORM 분기 도입 |
+| 2026-04-17 | Fly 실배포 완료 | `patent-extractor.fly.dev`, `patent-ocr.fly.dev` | 양쪽 워커 pgmq 폴링 정상 (Supabase 연결 E2E 검증) |
+
 ## 핵심 기능
 - 특허문서 관련 PDF파일을 입력 받아서, 내용 중에 도면을 추출해 제공합니다.
 - 추출된 도면에는 도면 번호가 포함되어 있습니다 ("도 1", "도 2" 형식 포함).

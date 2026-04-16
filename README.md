@@ -2,10 +2,13 @@
 
 **특허 문서 PDF에서 도면을 추출하고 각 부품 번호에 한국어 명칭을 자동으로 추가하는 AI 기반 시스템**
 
-[![AWS Serverless](https://img.shields.io/badge/AWS-Serverless-orange.svg)](https://aws.amazon.com/serverless/)
+[![Vercel](https://img.shields.io/badge/Vercel-Functions-000000.svg)](https://vercel.com/)
+[![Fly.io](https://img.shields.io/badge/Fly.io-Workers-9146FF.svg)](https://fly.io/)
+[![Supabase](https://img.shields.io/badge/Supabase-Postgres%2BStorage%2Bpgmq-3ECF8E.svg)](https://supabase.com/)
 [![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D.svg)](https://vuejs.org/)
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org/)
-[![EasyOCR](https://img.shields.io/badge/EasyOCR-Korean-green.svg)](https://github.com/JaidedAI/EasyOCR)
+
+> 🚧 **이관 진행 중 (2026-04-17~)**: AWS Lambda/ECS/S3/DynamoDB → Vercel Functions + Fly.io Workers + Supabase 로 전환 중입니다. 상세 진행 상태는 `CLAUDE.md` 하단의 **하네스 변경 이력** 및 로컬 `_workspace/checkpoint.md` 참조. Fly 워커 실배포 완료(2026-04-17), DNS cutover 전까지 프로덕션은 기존 AWS(`patent.sncbears.cloud`) 유지.
 
 ## ✨ 주요 기능
 

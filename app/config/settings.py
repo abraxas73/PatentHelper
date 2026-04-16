@@ -1,7 +1,7 @@
 from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator
 from pathlib import Path
-from typing import List, Union
+from typing import List, Optional, Union
 
 
 class Settings(BaseSettings):
@@ -9,7 +9,15 @@ class Settings(BaseSettings):
     app_name: str = "PatentHelper"
     app_version: str = "1.0.0"
     debug: bool = True
-    
+
+    # Platform & Cloud (local=기본, vercel/fly=이관 환경)
+    # PLATFORM=local 이면 기존 로컬 동작 유지 (디렉토리 자동 생성)
+    # PLATFORM=vercel|fly 이면 Supabase 자격증명 사용, 로컬 디렉토리 미생성
+    platform: str = "local"
+    supabase_url: Optional[str] = None
+    supabase_service_role_key: Optional[str] = None
+    supabase_anon_key: Optional[str] = None
+
     # Server
     host: str = "0.0.0.0"
     port: int = 8000
@@ -54,11 +62,12 @@ class Settings(BaseSettings):
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Create directories if they don't exist
-        self.upload_dir.mkdir(parents=True, exist_ok=True)
-        self.output_image_dir.mkdir(parents=True, exist_ok=True)
-        self.output_annotated_dir.mkdir(parents=True, exist_ok=True)
-        self.log_file.parent.mkdir(parents=True, exist_ok=True)
+        # 로컬 환경에서만 디렉토리 자동 생성 (vercel/fly 은 ephemeral tempfile 사용)
+        if self.platform == "local":
+            self.upload_dir.mkdir(parents=True, exist_ok=True)
+            self.output_image_dir.mkdir(parents=True, exist_ok=True)
+            self.output_annotated_dir.mkdir(parents=True, exist_ok=True)
+            self.log_file.parent.mkdir(parents=True, exist_ok=True)
 
 
 settings = Settings()

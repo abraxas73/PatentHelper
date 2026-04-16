@@ -1,0 +1,18 @@
+app = "patent-ocr"
+primary_region = "nrt"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PLATFORM = "fly"
+  QUEUES = "ocr_jobs,regenerate_jobs"   # 쉼표 구분 — 워커가 순차 폴링
+  VT_SECONDS = "900"
+  IDLE_EXIT_AFTER = "300"
+
+[processes]
+  worker = "python -u /srv/worker.py"
+
+[[vm]]
+  size = "performance-4x"
+  memory = "8gb"

@@ -1,0 +1,20 @@
+app = "patent-extractor"
+primary_region = "nrt"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PLATFORM = "fly"
+  QUEUE_NAME = "extract_jobs"
+  VT_SECONDS = "600"
+  IDLE_EXIT_AFTER = "300"   # 5분 유휴 후 종료(자동 스케일링과 조합)
+
+[processes]
+  worker = "python -u /srv/worker.py"
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"
+
+# HTTP 서비스 없음. 큐 기반 워커. 자동 중지는 Vercel 측에서 fly machine start로 기동.
