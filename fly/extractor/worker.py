@@ -61,18 +61,32 @@ def emit_event(job_id, event_type, payload=None):
     }).execute()
 
 
+import httpx
+
+_AUTH_HEADERS = {'Authorization': f'Bearer {SUPABASE_KEY}', 'apikey': SUPABASE_KEY}
+
+
 def storage_download(storage_path: str, dest: Path):
-    """storage_path = 'uploads/{job_id}/original.pdf' → bucket 'uploads'"""
+    """storage_path = 'uploads/{job_id}/original.pdf' → bucket 'uploads'.
+    supabase-py .storage.download 가 storage3 내부에서 empty-body HTTP error 시 JSONDecodeError 를
+    던지는 버그가 있어 httpx 로 직접 호출한다."""
     bucket, _, object_path = storage_path.partition('/')
-    data = sb.storage.from_(bucket).download(object_path)
-    dest.write_bytes(data)
+    url = f"{SUPABASE_URL}/storage/v1/object/{bucket}/{object_path}"
+    with httpx.Client(timeout=120) as cli:
+        r = cli.get(url, headers=_AUTH_HEADERS)
+        r.raise_for_status()
+        dest.write_bytes(r.content)
 
 
 def storage_upload(bucket: str, object_path: str, src_bytes: bytes, mime='image/png'):
-    sb.storage.from_(bucket).upload(
-        object_path, src_bytes,
-        file_options={'content-type': mime, 'upsert': 'true'},
-    )
+    url = f"{SUPABASE_URL}/storage/v1/object/{bucket}/{object_path}"
+    headers = {**_AUTH_HEADERS, 'Content-Type': mime, 'x-upsert': 'true'}
+    with httpx.Client(timeout=180) as cli:
+        r = cli.post(url, content=src_bytes, headers=headers)
+        if r.status_code == 409 and 'already exists' in r.text.lower():
+            # upsert 실패 시 PUT 로 덮어쓰기
+            r = cli.put(url, content=src_bytes, headers=headers)
+        r.raise_for_status()
 
 
 def process(msg: dict):

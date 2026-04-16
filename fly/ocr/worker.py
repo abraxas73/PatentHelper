@@ -65,15 +65,27 @@ def emit_event(job_id, event_type, payload=None):
     }).execute()
 
 
+import httpx
+
+_AUTH_HEADERS = {'Authorization': f'Bearer {SUPABASE_KEY}', 'apikey': SUPABASE_KEY}
+
+
 def storage_download(bucket: str, object_path: str, dest: Path):
-    dest.write_bytes(sb.storage.from_(bucket).download(object_path))
+    url = f"{SUPABASE_URL}/storage/v1/object/{bucket}/{object_path}"
+    with httpx.Client(timeout=120) as cli:
+        r = cli.get(url, headers=_AUTH_HEADERS)
+        r.raise_for_status()
+        dest.write_bytes(r.content)
 
 
 def storage_upload(bucket: str, object_path: str, src_bytes: bytes, mime='application/octet-stream'):
-    sb.storage.from_(bucket).upload(
-        object_path, src_bytes,
-        file_options={'content-type': mime, 'upsert': 'true'},
-    )
+    url = f"{SUPABASE_URL}/storage/v1/object/{bucket}/{object_path}"
+    headers = {**_AUTH_HEADERS, 'Content-Type': mime, 'x-upsert': 'true'}
+    with httpx.Client(timeout=300) as cli:
+        r = cli.post(url, content=src_bytes, headers=headers)
+        if r.status_code == 409 and 'already exists' in r.text.lower():
+            r = cli.put(url, content=src_bytes, headers=headers)
+        r.raise_for_status()
 
 
 def _split_bucket(path: str):
