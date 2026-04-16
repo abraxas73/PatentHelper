@@ -7,7 +7,15 @@ from urllib.parse import parse_qs, urlparse
 import json
 from datetime import datetime, timedelta, timezone
 
-from _lib.supabase_client import sb
+import os
+from supabase import create_client
+
+_sb_cache = None
+def sb():
+    global _sb_cache
+    if _sb_cache is None:
+        _sb_cache = create_client(os.environ['SUPABASE_URL'], os.environ['SUPABASE_SERVICE_ROLE_KEY'])
+    return _sb_cache
 
 
 class handler(BaseHTTPRequestHandler):

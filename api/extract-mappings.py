@@ -12,8 +12,18 @@
 from http.server import BaseHTTPRequestHandler
 import json
 
-from _lib.supabase_client import sb
-from _lib.queue import enqueue
+import os
+from supabase import create_client
+
+_sb_cache = None
+def sb():
+    global _sb_cache
+    if _sb_cache is None:
+        _sb_cache = create_client(os.environ['SUPABASE_URL'], os.environ['SUPABASE_SERVICE_ROLE_KEY'])
+    return _sb_cache
+
+def enqueue(queue, payload):
+    return sb().rpc('pgmq_send', {'queue_name': queue, 'msg': payload}).execute().data
 
 
 class handler(BaseHTTPRequestHandler):
