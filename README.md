@@ -8,7 +8,9 @@
 [![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D.svg)](https://vuejs.org/)
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org/)
 
-> 🚧 **이관 진행 중 (2026-04-17~)**: AWS Lambda/ECS/S3/DynamoDB → Vercel Functions + Fly.io Workers + Supabase 로 전환 중입니다. 상세 진행 상태는 `CLAUDE.md` 하단의 **하네스 변경 이력** 및 로컬 `_workspace/checkpoint.md` 참조. Fly 워커 실배포 완료(2026-04-17), DNS cutover 전까지 프로덕션은 기존 AWS(`patent.sncbears.cloud`) 유지.
+> ✅ **이관 완료 (2026-04-17)**: AWS Lambda/ECS/S3/DynamoDB → **Vercel Functions + Fly.io Workers + Supabase** 로 전환 완료. 프로덕션 도메인 `patent.sncbears.cloud` → Vercel. AWS 리소스 teardown 완료.
+>
+> 📘 운영/배포 가이드: [`DEPLOYMENT.md`](./DEPLOYMENT.md) · 스크립트: [`scripts/README.md`](./scripts/README.md) · 이관 이력: `CLAUDE.md` 하단 변경 이력
 
 ## ✨ 주요 기능
 
