@@ -1,13 +1,13 @@
 name: Deploy Fly OCR
 
 on:
-  # Fly 앱 생성 + FLY_API_TOKEN 시크릿 등록 후 아래 push 블록 주석 해제
-  # push:
-  #   branches: [main]
-  #   paths:
-  #     - 'app/**'
-  #     - 'fly/ocr/**'
-  #     - '.github/workflows/deploy-fly-ocr.yml'
+  # main push 시 자동 배포
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'fly/ocr/**'
+      - '.github/workflows/deploy-fly-ocr.yml'
   workflow_dispatch:
 
 concurrency:
