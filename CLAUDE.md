@@ -26,6 +26,8 @@
 | 2026-04-17 | Phase 3 완료 (기반 구축) | Supabase MCP 0001/0002 마이그 + 포팅 파일 19개 | 실제 인프라 스키마 적용, 버킷 생성 |
 | 2026-04-17 | Phase 4 착수 (포팅 완료) | `api/`, `fly/`, `.github/workflows/`, `vercel.json`, `front/src/config.js`, `app/config/settings.py` | 레포 루트로 파일 이동, PLATFORM 분기 도입 |
 | 2026-04-17 | Fly 실배포 완료 | `patent-extractor.fly.dev`, `patent-ocr.fly.dev` | 양쪽 워커 pgmq 폴링 정상 (Supabase 연결 E2E 검증) |
+| 2026-04-17 | Vercel cutover 완료 | `patent.sncbears.cloud` | Gabia CNAME → cname.vercel-dns.com, E2E 30초 |
+| 2026-04-17 | AWS Teardown 완료 | Lambda/ECS/S3/DynamoDB/CloudFront/IAM | 이관 프로젝트 종결. 예상 월 비용 $40~110 절감 |
 
 ## 핵심 기능
 - 특허문서 관련 PDF파일을 입력 받아서, 내용 중에 도면을 추출해 제공합니다.

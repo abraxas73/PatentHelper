@@ -152,3 +152,4 @@ deploy_aws/lambda/**/.DS_Store
 
 *.log
 
+.vercel
